@@ -1,0 +1,8 @@
+# Compiled objects
+*.o
+*.out
+*.exe
+
+# IDE files
+.vscode/
+*.swp

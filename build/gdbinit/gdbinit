@@ -1,0 +1,2 @@
+source C:/Users/marti/ESP_32_code/baremetal_data_logger/build/gdbinit/symbols
+source C:/Users/marti/ESP_32_code/baremetal_data_logger/build/gdbinit/connect
