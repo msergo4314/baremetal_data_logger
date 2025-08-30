@@ -4,48 +4,93 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "rom/ets_sys.h"
+#include <string.h>
 
 #include "my_I2C.h" // custom I2C bit-banged protocol implementation
 
 #define SSD1306_ADDRESS 0x3D // can be 0x3C or 0x3D depending on the D/C# pin
+#define SSD1306_NUM_PAGES 8 // a page is a horizontal slice of the screen 8 pixels tall
+#define SSD1306_OLED_WIDTH 128 // in pixels
+#define SSD1306_OLED_HEIGHT 64 // in pixels
 
 // these masks will be used to determine what contorl bytes will be for transmissions
 
-#define SSD1306_CO_BIT (1 << 7)   // Continuation bit (bit 7)
-#define SSD1306_DC_BIT (1 << 6)   // Data/Command bit (bit 6)
+#define SSD1306_CO_BIT (byte)(1 << 7)   // Continuation bit (bit 7)
+#define SSD1306_DC_BIT (byte)(1 << 6)   // Data/Command bit (bit 6)
 
 // macro to determine what the control byte looks like for any transmission
 #define SSD1306_CONTROL_BYTE(co, dc) ((co ? SSD1306_CO_BIT : 0) | (dc ? SSD1306_DC_BIT : 0))
 
-typedef struct pixel_coord {
-    // the OLED measures 64x128 pixels so a byte is plenty of space for X and Y
-    uint8_t x;
-    uint8_t y;
-} ssd1306_pixel_coordinate;
+/*
+PAGE MODE
+The Page address pointer is selected first, then the start column and end column. The columns increment on each read/write
+and if the column address pointer reaches the column end address it resets to column start WITHOUT updating the page pointer
+this means it will overwrite data instead of going to the next page
 
-// the SSD1306 supports 3 addressing modes: Page, Horizontal, and Vertical
+HORIZONTAL MODE
+Works identically to PAGE addressing but increments the page pointer when the column pointer reaches the column end
+this essentially means you can write subsequent lines 
+
+VERTICAL MODE
+the page address pointer is incremented by 1 each read/write instead of the column. 
+Wraps to next column when all pages are set
+*/
 typedef enum {
-    /*
-    The Page address pointer is selected first, then the start column and end column. The columns increment on each read/write
-    and if the column address pointer reaches the column end address it resets to column start WITHOUT updating the page pointer
-    this means it will overwrite data instead of going to the next page
-    */
     PAGE,
-
-    /*
-    Works identically to PAGE addressing but increments the page pointer when the column pointer reaches the column end
-    this essentially means you can write subsequent lines 
-    */
     HORIZONTAL, // same as PAGE but wraps around to the next page instead of the same page
-
-    /*
-    the page address pointer is incremented by 1 each read/write instead of the column. 
-    Wraps to next column when all pages are set
-    */
     VERTICAL
 } ADDRESSING_MODE;
 
+typedef enum {
+    ON = 1,
+    OFF = 0
+} ON_OFF;
+
 ADDRESSING_MODE current_mode;
+
+// instead of reading the GDDRAM to preserve data, we will track it fully in software to save time and reduce complexity
+// 128 * 8 = 1024 bytes total --> 128 columns and 8 pages
+byte SSD1306_GDDRAM_buffer[8][128] = {};
+
+typedef struct pixel_coord {
+    // the OLED measures 64x128 pixels so a byte is plenty of space for X and Y
+    byte x;
+    byte y;
+} ssd1306_pixel_coordinate;
+
+// Function prototypes
+uint8_t* get_bitmap_from_ascii(uint8_t character);
+bool ssd1306_write_bytes(const byte* stream_of_bytes, size_t number_of_bytes, bool start, bool stop);
+bool ssd1306_set_addressing_mode(const ADDRESSING_MODE mode);
+bool ssd1306_init();
+bool ssd1306_set_contrast(byte contrast);
+bool ssd1306_entire_display_on(void);
+bool ssd1306_invert_display(void);
+bool ssd1306_normal_display(void);
+bool ssd1306_nop(void);
+bool ssd1306_on(void);
+bool ssd1306_off(void);
+bool ssd1306_update_display(void);
+bool ssd1306_set_page_address(const byte page);
+bool ssd1306_set_column_address(const byte column);
+bool ssd1306_set_column_start_and_end(const byte column_start, const byte column_end);
+bool ssd1306_clear_screen(void);
+bool ssd1306_clear(void);
+bool ssd1306_write_string_size8x8p(const char* string_to_print, const uint8_t x_offset_pixels_left,
+    const uint8_t x_offset_pixels_right, uint8_t start_page);
+bool draw_square(const ssd1306_pixel_coordinate coordinates, const byte pixel_width);
+bool ssd1306_show_RAM_only(void);
+bool SSD1306_refresh_page(const byte page_to_refresh);
+
+bool SSD1306_set_pixel(const ssd1306_pixel_coordinate pixel_coords, ON_OFF on_or_off, bool flush);
+bool SSD1306_set_pixel_xy(const byte x, const byte y, ON_OFF on_or_off, bool flush);
+bool verify_coordinates_are_valid(const ssd1306_pixel_coordinate coordinate);
+bool SSD1306_draw_line(const ssd1306_pixel_coordinate p1, const ssd1306_pixel_coordinate p2, bool flush);
+bool SSD1306_draw_hline(const byte x, const byte y1, const byte y2, bool flush);
+bool SSD1306_draw_vline(const byte y, const byte x1, const byte x2, bool flush);
+
+// the SSD1306 supports 3 addressing modes: Page, Horizontal, and Vertical
+
 /*
 
 When transmitting bytes with I2C, we have two options for the OLED -- a command or data
@@ -74,99 +119,8 @@ Bit D0 (the LSB) is written at the top and D7 at the bottom
 
 */
 
-void ssd1306_init() {
-    I2C_init();
-    current_mode = PAGE; // we will just stick with the page mode here
-}
-
-// wraps the I2C function for the ssd1306 display
-bool ssd1306_write_bytes(const byte* stream_of_bytes, size_t number_of_bytes, bool start, bool stop) {
-    return I2C_send_byte_stream(SSD1306_ADDRESS, stream_of_bytes, number_of_bytes, WRITE, start, stop);
-}
-
-
-// sets contrast of display. Higher byte value correlates to higher contrast
-bool ssd1306_set_contrast(byte contrast) {
-    // to set contrast we will transmit two bytes -- the command byte which indicates we want to change the contrast, and the value itself (data byte)
-    // control byte first: Co=0, D/C=0 → command stream with no more control bytes
-    byte transmission[3] = {SSD1306_CONTROL_BYTE(0, 0), 0x81, contrast};
-    return ssd1306_write_bytes(transmission, sizeof(transmission), true, true);
-}
-
-
-bool ssd1306_entire_display_on(void) {
-    // A5 is the command for entire display ON with no regard for RAM content
-
-    // control byte first: Co=0, D/C=0 → command stream with no more control bytes
-    byte transmission[2] = {SSD1306_CONTROL_BYTE(0, 0), 0xA5};
-    return ssd1306_write_bytes(transmission, sizeof(transmission), true, true);
-}
-
-// changes behaviour to 0 in RAM -> ON in display panel and 1 in RAM -> OFF in display panel
-bool ssd1306_invert_display(void) {
-    // control byte first: Co=0, D/C=0 → command stream with no more control bytes
-    byte transmission[2] = {SSD1306_CONTROL_BYTE(0, 0), 0xA7};
-    return ssd1306_write_bytes(transmission, sizeof(transmission), true, true);
-}
-
-// changes behaviour to the normal behaviour: 0 in RAM -> OFF in display and 1 in RAM -> ON on display
-bool ssd1306_normal_display(void) {
-    // control byte first: Co=0, D/C=0 → command stream with no more control bytes
-    byte transmission[2] = {SSD1306_CONTROL_BYTE(0, 0), 0xA6};
-    return ssd1306_write_bytes(transmission, sizeof(transmission), true, true);
-}
-
-// could be useful if you want to waste time
-bool ssd1306_nop(void) {
-    byte transmission[2] = {SSD1306_CONTROL_BYTE(0, 0), 0xE3};
-    return ssd1306_write_bytes(transmission, sizeof(transmission), true, true);
-}
-
-// turns entire display ON
-bool ssd1306_on(void) {
-    byte transmission[2] = {SSD1306_CONTROL_BYTE(0, 0), 0xAE};
-    return ssd1306_write_bytes(transmission, sizeof(transmission), true, true);
-}
-
-// turns entire display OFF
-bool ssd1306_off(void) {
-    byte transmission[2] = {SSD1306_CONTROL_BYTE(0, 0), 0xAF};
-    return ssd1306_write_bytes(transmission, sizeof(transmission), true, true);
-}
-
-// displays the contents of GDDRAM
-bool ssd1306_display(void) {
-    // A4 is the command for entire display ON with RAM contents showing
-    byte transmission[2] = {SSD1306_CONTROL_BYTE(0, 0), 0xA4};
-    return ssd1306_write_bytes(transmission, sizeof(transmission), true, true);
-}
-
-bool ssd1306_set_addressing_mode(const ADDRESSING_MODE mode) {
-    byte lower_bits = 0x0;
-    // the mode we want will determine what the last two bits of the command are
-    switch(mode) {
-        case PAGE:
-        // this is considered a RESET since it's the default
-            lower_bits = (byte)0b10;
-        break;
-        case HORIZONTAL:
-            lower_bits = (byte)0b00;
-        break;
-        case VERTICAL:
-            lower_bits = (byte)0b01;
-        break;
-        default:
-            // datasheet says this is INVALID, so should never be used
-            lower_bits = (byte)0b11;
-        break;
-    }
-    // command is 0x20 OR'd with the lower two bits
-    byte transmission[2] = {SSD1306_CONTROL_BYTE(0, 0), (0x20 | lower_bits)};
-    return ssd1306_write_bytes(transmission, sizeof(transmission), true, true);
-}
-
 /*  FONT DEFINED FROM ASCII 32 -> 127 */
-static const uint8_t font8x8[94][8] = {
+static const uint8_t font8x8[95][8] = {
     /*  ASCII PRINTABLE CHARACTERS */
     {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, //  032 -> 0x20 ( ) (space)
     {0x00, 0x00, 0x00, 0x5F, 0x5F, 0x00, 0x00, 0x00}, //  033 -> 0x21 (!)
@@ -268,9 +222,478 @@ static const uint8_t font8x8[94][8] = {
 uint8_t* get_bitmap_from_ascii(uint8_t character) {
     if (character < 32 || character > 126) {
         // if invalid, don't set any pixels (will look like nothing or a space)
-        return (uint8_t*) {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+        return (uint8_t*)font8x8[0];
     }
-    return font8x8[character - 32];
+    return (uint8_t*)font8x8[character - 32];
+}
+
+// wraps the I2C function for the ssd1306 display
+bool ssd1306_write_bytes(const byte* stream_of_bytes, size_t number_of_bytes, bool start, bool stop) {
+    return I2C_send_byte_stream(SSD1306_ADDRESS, stream_of_bytes, number_of_bytes, WRITE, start, stop);
+}
+
+bool ssd1306_set_addressing_mode(const ADDRESSING_MODE mode) {
+    byte lower_bits = 0x0;
+    // the mode we want will determine what the last two bits of the command are
+    switch(mode) {
+        case PAGE:
+        // this is considered a RESET since it's the default
+            lower_bits = (byte)0b10;
+        break;
+        case HORIZONTAL:
+            lower_bits = (byte)0b00;
+        break;
+        case VERTICAL:
+            lower_bits = (byte)0b01;
+        break;
+        default:
+            // datasheet says this is INVALID, so should never be used
+            lower_bits = (byte)0b11;
+        break;
+    }
+    // command is 0x20 for changing the addressing mode. Follow with the desired mode.
+    // The first 6 bits of the third byte are X (don't care) so here they are 0s
+    byte transmission[3] = {SSD1306_CONTROL_BYTE(0, 0), 0x20, (byte)lower_bits};
+    return ssd1306_write_bytes(transmission, sizeof(transmission), true, true);
+}
+
+// turns on the screen, sets addressing mode to PAGE, sets display to normal mode, and clears the screen
+bool ssd1306_init() {
+    I2C_init();
+    if (!ssd1306_on()) return false;
+    if (!ssd1306_set_addressing_mode(PAGE)) return false;
+    if (!ssd1306_normal_display()) return false;
+    if (!ssd1306_clear_screen()) return false;
+    // ssd1306_set_contrast(0xFF);
+    current_mode = PAGE; // PAGE will be our default addressing mode for writing data
+    return true;
+}
+
+// sets contrast of display. Higher byte value correlates to higher contrast
+bool ssd1306_set_contrast(byte contrast) {
+    // to set contrast we will transmit two bytes -- the command byte which indicates we want to change the contrast, and the value itself (data byte)
+    // control byte first: Co=0, D/C=0 → command stream with no more control bytes
+    byte transmission[3] = {SSD1306_CONTROL_BYTE(0, 0), 0x81, contrast};
+    return ssd1306_write_bytes(transmission, sizeof(transmission), true, true);
+}
+
+bool ssd1306_entire_display_on(void) {
+    // A5 is the command for entire display ON with no regard for RAM content
+    // control byte first: Co=0, D/C=0 → command stream with no more control bytes
+    byte transmission[2] = {SSD1306_CONTROL_BYTE(0, 0), 0xA5};
+    if (!ssd1306_write_bytes(transmission, sizeof(transmission), true, true)) return false;
+    ssd1306_update_display();
+    return true;
+}
+
+// changes behaviour to 0 in RAM -> ON in display panel and 1 in RAM -> OFF in display panel
+bool ssd1306_invert_display(void) {
+    // control byte first: Co=0, D/C=0 → command stream with no more control bytes
+    byte transmission[2] = {SSD1306_CONTROL_BYTE(0, 0), 0xA7};
+    if  (!ssd1306_write_bytes(transmission, sizeof(transmission), true, true)) return false;
+    ssd1306_update_display();
+    return true;
+}
+
+// changes behaviour to the normal behaviour: 0 in RAM -> OFF in display and 1 in RAM -> ON on display
+bool ssd1306_normal_display(void) {
+    // control byte first: Co=0, D/C=0 → command stream with no more control bytes
+    byte transmission[2] = {SSD1306_CONTROL_BYTE(0, 0), 0xA6};
+    if (!ssd1306_write_bytes(transmission, sizeof(transmission), true, true)) return false;
+    ssd1306_update_display();
+    return true;
+}
+
+// could be useful if you want to waste time
+bool ssd1306_nop(void) {
+    byte transmission[2] = {SSD1306_CONTROL_BYTE(0, 0), 0xE3};
+    return ssd1306_write_bytes(transmission, sizeof(transmission), true, true);
+}
+
+// turns entire display ON
+bool ssd1306_on(void) {
+    byte transmission[2] = {SSD1306_CONTROL_BYTE(0, 0), 0xAF};
+    return ssd1306_write_bytes(transmission, sizeof(transmission), true, true);
+}
+
+// turns entire display OFF (sleep mode)
+bool ssd1306_off(void) {
+    byte transmission[2] = {SSD1306_CONTROL_BYTE(0, 0), 0xAE};
+    return ssd1306_write_bytes(transmission, sizeof(transmission), true, true);
+}
+
+// displays the contents of the INTERNAL GDDRAM (the 2D array)
+bool ssd1306_update_display(void) {
+    if (current_mode != PAGE) {
+        if (!ssd1306_set_addressing_mode(PAGE)) return false;
+    }
+    // we will write the internal memory for each page instead of all at once for reliability
+    // this is because I2C could fail if we hold the bus too long
+    for (byte page = 0; page < 8; page++) {
+        ssd1306_set_page_address(page);
+        ssd1306_set_column_address(0);
+        byte buffer[129];
+        buffer[0] = SSD1306_CONTROL_BYTE(0, 1);
+        memcpy(&buffer[1], &(SSD1306_GDDRAM_buffer[page][0]), SSD1306_OLED_WIDTH);
+        if (!ssd1306_write_bytes(buffer, sizeof(buffer), true, true)) return false;
+    }
+    return ssd1306_show_RAM_only();
+}
+
+// shows what is in GDDRAM on the chip and nothing else
+bool ssd1306_show_RAM_only(void) {
+    // A4 is the command for entire display ON with RAM contents showing
+    byte transmission[2] = {SSD1306_CONTROL_BYTE(0, 0), 0xA4};
+    return ssd1306_write_bytes(transmission, sizeof(transmission), true, true);
+}
+
+bool ssd1306_set_page_address(const byte page) {
+    if (current_mode != PAGE) {
+        printf("Must be in PAGE mode\n");
+        return false;
+    }
+    byte transmission[2] = {SSD1306_CONTROL_BYTE(0, 0), 0xB0 | page};
+    return ssd1306_write_bytes(transmission, sizeof(transmission), true, true);
+}
+
+bool ssd1306_set_column_address(const byte column) {
+    if (current_mode != PAGE) {
+        printf("Must be in PAGE mode\n");
+        return false;
+    }
+    byte transmission[3] = {SSD1306_CONTROL_BYTE(0, 0), column & 0xF, ((column >> 4) | 0x10)};
+    return ssd1306_write_bytes(transmission, sizeof(transmission), true, true);
+}
+
+// sets column start and end for HORIZONTAL and VERTICAL modes
+bool ssd1306_set_column_start_and_end(const byte column_start, const byte column_end) {
+    if (current_mode == PAGE) {
+        printf("cannot set column start and end in page mode!\n");
+        return false;
+    }
+    if (column_start > 127 || column_end > 127) {
+        printf("Desired columns are too large. Use values in the range of (0-127)\n");
+        return false;
+    }
+    byte transmission[4] = {SSD1306_CONTROL_BYTE(0, 0), 0x21, column_start, column_end};
+    return ssd1306_write_bytes(transmission, sizeof(transmission), true, true);
+}
+
+// clears screen by setting GDDRAM to 0 and calling ssd1306_update_display()
+bool ssd1306_clear_screen(void) {
+    // to clear, write all 0s into RAM buffer, then write the whole buffer
+    memset(SSD1306_GDDRAM_buffer, 0x0, 1024); // set the internal buffer to be all 0s
+    return ssd1306_update_display();
+}
+
+// alternate method of clearing
+// bool ssd1306_clear(void) {
+//     ssd1306_set_addressing_mode(PAGE);
+
+//     for (uint8_t page = 0; page < 8; page++) {
+//         ssd1306_set_page_address(page);
+//         ssd1306_set_column_address(0);
+
+//         byte buffer[129];           // 1 control byte + 128 data bytes
+//         buffer[0] = SSD1306_CONTROL_BYTE(0, 1); // D/C=1, only one control byte
+//         memset(&buffer[1], 0x00, 128);          // all pixels off
+
+//         if (!ssd1306_write_bytes(buffer, sizeof(buffer), true, true)) {
+//             return false;
+//         }
+//     }
+//     ssd1306_update_display();
+//     memset(SSD1306_GDDRAM_buffer, 0x0, 1024); // set the tracker to be all 0s
+//     return true;
+// }
+
+/*
+write a string to the OLED with a specified padding of spaces. Font will be 8x8 pixels.
+only supports the visible ASCII characters (32-126).
+
+NOTE: the left pixel offset determines the number of pixels that are NOT set (blank)
+*/
+bool ssd1306_write_string_size8x8p(const char* string_to_print, const uint8_t x_offset_pixels_left,
+    const uint8_t x_offset_pixels_right, uint8_t start_page) {
+    // each character we print will be 8x8 pixels, so we can print a max of 16 characters if x_offset_pixels = 0
+    if (!string_to_print) {
+        printf("Passed NULL pointer\n");
+        return false;
+    }
+    size_t len = strlen(string_to_print);
+    if (len >= 16) {
+        // likely undesired behaviour
+        printf("warning: string will overwrite itself on OLED\n");
+    }
+    // There are only 8 pages so start_page must be < 8
+    // we want to be able to print at least one character per page
+    if (start_page >= SSD1306_NUM_PAGES ||
+    x_offset_pixels_left >= SSD1306_OLED_WIDTH - 8 ||
+    x_offset_pixels_left + 8 >= SSD1306_OLED_WIDTH - x_offset_pixels_right) {
+        if (start_page >= SSD1306_NUM_PAGES ) {
+            printf("Cannot pick a page number over 7! Use 0-7 for pages\n");
+        } else {
+            printf("Cannot pick an x left offset greater than 119! Use 0-119\n");
+        }
+        return false;
+    }
+    // get the array of pixels ready
+    // printf("Trying to write string %s at internal address of page %d and column %d\n", string_to_print, page_address, x_offset);
+    byte current_page = start_page;
+    byte current_column = x_offset_pixels_left;
+    bool page_dirty[SSD1306_NUM_PAGES] = {false};
+
+    for (int i = 0; i < len; i++) {
+        // grab 8 byte blocks for each character
+        const byte* glyph = (byte*)get_bitmap_from_ascii((uint8_t)string_to_print[i]);
+        // write the 8 byte block to GDDRAM buffer
+        if (current_column + 8 > SSD1306_OLED_WIDTH - x_offset_pixels_right) {
+            // if the character would be printed offscreen or past the right offset, wrap to next page and reset column
+            current_page++;
+            if (current_page >= SSD1306_NUM_PAGES) {
+                current_page = 0; // wrap to top if desired, or break to stop
+            }
+            current_column = x_offset_pixels_left; // move column back to offset
+        }
+        memcpy(&(SSD1306_GDDRAM_buffer[current_page][current_column]), glyph, 8);
+        page_dirty[current_page] = true;
+        current_column += 8;
+        // printf("copied 8 bytes into column %d and row %d of the buffer\n", page_address, x_offset + 8 * i);
+    }
+    // Refresh only the modified pages
+    for (int p = 0; p < SSD1306_NUM_PAGES; p++) {
+        if (page_dirty[p]) {
+            SSD1306_refresh_page(p);
+        }
+    }
+    return true;
+}
+
+/*
+the square will be placed with it's top left at the origin coordinate
+width determines x distance in pixels including the origin
+height determines y distance in pixels including the origin
+always draws down and to the right
+*/
+
+bool SSD1306_draw_rectangle(const ssd1306_pixel_coordinate origin, const byte width_px, const byte height_px, const byte border_thickness_px, bool fill) {
+    byte starting_page = origin.y / 8;
+    byte vertical_bit = origin.y % 8;
+    byte starting_column = origin.x;
+
+    // assuming (0,0) we can have a max width of 128 and height of 64
+    if (starting_column + width_px > SSD1306_OLED_WIDTH) {
+        printf("width of rectangle too great\n");
+        return false;
+    }
+    if ((8 * starting_page + height_px - vertical_bit > SSD1306_OLED_HEIGHT)) {
+        printf("height of rectangle too great\n");
+        return false;
+    }
+    if (border_thickness_px == 0 || width_px == 0 || height_px == 0) {
+        printf("rectangle dimensions must be at least 1px\n");
+        return false;
+    }
+    if (fill) {
+        byte tracker = 0;
+        byte pages_to_refresh = 1;
+        for (byte y = origin.y; y < origin.y + height_px; y++) {
+            if (!SSD1306_draw_hline(y, origin.x, origin.x + width_px - 1, false)) return false;
+            tracker++;
+            if (tracker == 8) { // 8 pixels per page
+                tracker = 0;
+                pages_to_refresh++;
+            }
+        }
+
+        for (byte i = 0; i < pages_to_refresh; i++) {
+            byte page_to_refresh = starting_page + i;
+            if (page_to_refresh >= SSD1306_NUM_PAGES) break; // don't exceed 7
+            if (!SSD1306_refresh_page(page_to_refresh)) return false;
+        }
+        return true;
+    } else {
+        // Draw borders of thickness border_thickness_px
+        for (byte t = 0; t < border_thickness_px; t++) {
+            // Top border
+            SSD1306_draw_hline(origin.y + t, origin.x, origin.x + width_px - 1, false);
+            // Bottom border
+            SSD1306_draw_hline(origin.y + height_px - t - 1, origin.x, origin.x + width_px - 1, false);
+            // Left border
+            SSD1306_draw_vline(origin.x + t, origin.y, origin.y + height_px - 1, false);
+            // Right border
+            SSD1306_draw_vline(origin.x + width_px - t - 1, origin.y, origin.y + height_px - 1, false);
+        }
+    }
+    // Push buffer to display (you could optimize to refresh only affected pages)
+    return ssd1306_update_display();
+}
+
+bool SSD1306_set_pixel_xy(const byte x, const byte y, ON_OFF on_or_off, bool flush) {
+    const ssd1306_pixel_coordinate coords = {x, y};
+    return SSD1306_set_pixel(coords, on_or_off, flush);
+}
+
+/*
+note: 0 indexed. (0, 0) is top left of display
+the flush variable determines if the WHOLE screen is printed
+*/ 
+bool SSD1306_set_pixel(const ssd1306_pixel_coordinate pixel_coords, ON_OFF on_or_off, bool flush) {
+    
+    byte column = pixel_coords.x; // 0-127
+    byte page = pixel_coords.y / 8; // 0-7
+
+    if (!verify_coordinates_are_valid(pixel_coords)) {
+        printf("Error: cannot draw a pixel that does not fit on the display. Passed in point (%d, %d)\n", (int)column, (int)pixel_coords.y);
+        return false;
+    }
+
+    // the individual pixel is one bit of the byte at the pair (column, page)
+    // this byte is always written to the on chip GDDRAM top down starting at the LSB to the MSB
+    byte bit = pixel_coords.y % 8; // this number is from the top down so shift from LSB towards MSB (left shift)
+
+    // if the bit is already set, just exit the function. No work to be done.
+    if (((SSD1306_GDDRAM_buffer[page][column] >> bit) & 1) == on_or_off) return true;
+
+    else if (on_or_off == OFF) {
+        // set the correct bit to be 1 from 0
+        // To do this, left shift a 1 into the correct position. Then invert this to get all 1s and one 0 in the correct spot.
+        // Lastly, bitwise AND with the original value to set the 1 to a 0.
+        SSD1306_GDDRAM_buffer[page][column] &= ~(1 << bit);
+    } else {
+        // set the correct bit to be 0 from 1
+        // In this case, just left shift a 1 to the correct spot and bitwise OR it with the original value.
+        // This will set the bit of interest to a 0 and keep the others untouched
+        SSD1306_GDDRAM_buffer[page][column] |= (1 << bit);
+        // printf("page value: %d\n", (int)page);
+        // printf("column value: %d\n", (int)column);
+        // printf("bit value: %d\n", (int)bit);
+        // printf("Byte value is now: %d\n", (int)SSD1306_GDDRAM_buffer[page][column]);
+    }
+    // update the screen only if specified
+    if (flush) return SSD1306_refresh_page(page);
+    return true;
+}
+
+// draws a line 1 pixel wide
+bool SSD1306_draw_line(const ssd1306_pixel_coordinate p1, const ssd1306_pixel_coordinate p2, bool flush) {
+    if (!verify_coordinates_are_valid(p1) || !verify_coordinates_are_valid(p2)) {
+        printf("Invalid coordinates to draw line\n");
+        return false;
+    }
+
+    int x1 = p1.x, y1 = p1.y;
+    int x2 = p2.x, y2 = p2.y;
+
+    if (x1 == x2) {
+        return SSD1306_draw_vline(x1, y1, y2, flush);
+    } else if (y1 == y2) {
+        return SSD1306_draw_hline(y1, x1, x2, flush);
+    }
+
+    // Implement Bresenham's line algorithm (from wikipedia...)
+
+    int dx = abs(x2 - x1);
+    int dy = -abs(y2 - y1);
+    int sx = x1 < x2 ? 1 : -1;
+    int sy = y1 < y2 ? 1 : -1;
+    int err = dx + dy;
+
+    while (1) {
+        if (!SSD1306_set_pixel_xy((byte)x1, (byte)y1, ON, false)) {
+            printf("Failed to set pair: %d, %d\n", (int)x1, (int)y1);
+            return false;
+        }
+        if (x1 == x2 && y1 == y2) break;
+
+        int e2 = 2 * err;
+        if (e2 >= dy) { err += dy; x1 += sx; }
+        if (e2 <= dx) { err += dx; y1 += sy; }
+    }
+
+    return ssd1306_update_display(); // Use partial page update for better speed
+}
+
+bool SSD1306_reset_page(const byte page) {
+    memset(SSD1306_GDDRAM_buffer[page], 0x0, 128);
+    return SSD1306_refresh_page(page);
+}
+
+// Horizontal line of width 1 pixel
+bool SSD1306_draw_hline(const byte y, const byte x1, const byte x2, bool flush) {
+    // Ensure coordinates are valid
+    if (!verify_coordinates_are_valid((ssd1306_pixel_coordinate){.x = x1, .y = y}) ||
+        !verify_coordinates_are_valid((ssd1306_pixel_coordinate){.x = x2, .y = y})) {
+        printf("invalid coordinates given in SSD1306_draw_hline()\n");
+        return false;
+    }
+    byte start = (x1 < x2) ? x1 : x2;
+    byte end   = (x1 > x2) ? x1 : x2;
+
+    ssd1306_pixel_coordinate current = {.y = y}; // x will be set in the loop
+    for (byte x = start; x <= end; x++) {
+        current.x = x;
+        if (!SSD1306_set_pixel(current, ON, false)) return false;
+    }
+    if (flush) {
+        return SSD1306_refresh_page(y / 8);
+    }
+    return true;
+}
+
+// vertical line of width 1 pixel
+bool SSD1306_draw_vline(const byte x, const byte y1, const byte y2, bool flush) {
+    if (!verify_coordinates_are_valid((ssd1306_pixel_coordinate){.x = x, .y = y1}) || 
+        !verify_coordinates_are_valid((ssd1306_pixel_coordinate){.x = x, .y = y2})) {
+        printf("invalid coordinates given in SSD1306_draw_vline()\n");
+        return false;
+    }
+    byte start = (y1 < y2) ? y1 : y2;
+    byte end   = (y1 > y2) ? y1 : y2;
+
+    ssd1306_pixel_coordinate current = {.x = x, .y = 0}; // y will be set in the loop
+    for (byte y = start; y <= end; y++) {
+        current.y = y;
+        if (!SSD1306_set_pixel(current, ON, false)) return false;
+    }
+    if (flush) {
+        return ssd1306_update_display();
+    }
+    return true;
+}
+
+// faster than refreshing the whole display
+bool SSD1306_refresh_page(const byte page_to_refresh) {
+    if (page_to_refresh >= SSD1306_NUM_PAGES) {
+        printf("Page must be in range 0-7\n");
+        return false; // SSD1306 has 8 pages (0–7)
+    }
+    if (current_mode != PAGE) {
+        if (!ssd1306_set_addressing_mode(PAGE)) return false;
+    }
+    // set the column to 0 and page to the desired page. Then transmit data from the GDDRAM buffer
+
+    /*
+    could optimize this by making this one transmission without two START/STOP conditions
+    */
+    // ssd1306_set_page_address(page_to_refresh);
+    // ssd1306_set_column_address(0);
+
+    byte transmission[] = {SSD1306_CONTROL_BYTE(1, 0), 0xB0 | page_to_refresh, SSD1306_CONTROL_BYTE(0, 0), 0, 0x10};
+    if (!ssd1306_write_bytes(transmission, sizeof(transmission), true, true)) return false;
+
+    byte buffer[129];
+    buffer[0] = SSD1306_CONTROL_BYTE(0, 1); // data control byte
+    memcpy(&buffer[1], &SSD1306_GDDRAM_buffer[page_to_refresh][0], SSD1306_OLED_WIDTH);
+    if (!ssd1306_write_bytes(buffer, sizeof(buffer), true, true)) return false;
+    return true;
+}
+
+bool verify_coordinates_are_valid(const ssd1306_pixel_coordinate coordinate) {
+    if (coordinate.x >= SSD1306_OLED_WIDTH || coordinate.y >= SSD1306_OLED_HEIGHT) {
+        return false;
+    }
+    return true;
 }
 
 #endif // ssd1306_I2C.h

@@ -11,7 +11,7 @@ typedef uint8_t byte;
 // these are the normal SDA/SCL pins, but will be used as any other GPIO pins
 #define I2C_SDA GPIO_NUM_21
 #define I2C_SCL GPIO_NUM_22
-#define _NOP() __asm__ __volatile__ ("nop");
+// #define _NOP() __asm__ __volatile__ ("nop");
 
 typedef enum {
     READ = 0x1,
@@ -55,7 +55,7 @@ static inline void scl_low(void){ gpio_set_level(I2C_SCL, 0); }
 
 // static inline void I2C_delay(void) {_NOP();} // can also do fixed time interval using ets_delay_us() or vTaskDelay()
 
-static inline void I2C_delay(void) {ets_delay_us(5);} // standard I2C uses 4 microsecond wait times
+static inline void I2C_delay(void) {ets_delay_us(1);} // standard I2C uses 4 microsecond wait times
 
 static void I2C_start(void) {
     // give the lines time to fully rise to 3.3V (1 us works in testing, best to do more)
@@ -117,7 +117,7 @@ bool I2C_write_byte(byte byte_to_write) {
 }
 
 // Note: does not have any START/STOP conditions, just sends the byte
-static bool transmit_address_and_RW(byte address_of_slave, READ_OR_WRITE rw) {
+static inline bool transmit_address_and_RW(byte address_of_slave, READ_OR_WRITE rw) {
     // the address needs to be 7 bits long. Left shift and insert read/write bit as the LSB
     return I2C_write_byte((address_of_slave << 1) | rw);
 }
@@ -145,19 +145,25 @@ byte read_byte(bool ack) {
     return (byte)data;
 }
 
-bool I2C_send_byte_stream(byte slave_address, const byte* stream_of_bytes, size_t number_of_bytes_to_send, READ_OR_WRITE rw, bool start_transmission, bool end_transmission) {
-    if (start_transmission) I2C_start();
-    if (!transmit_address_and_RW(slave_address, rw)) {
-        printf("transmitting address and R/W resulted in NACK! Address given: %x\n", slave_address);
-        return false;
+bool I2C_send_byte_stream(byte slave_address,  const byte* stream_of_bytes, size_t number_of_bytes_to_send, READ_OR_WRITE rw,
+bool start_transmission, bool end_transmission) {
+    if (start_transmission) {
+        I2C_start();
+        if (!transmit_address_and_RW(slave_address, rw)) {
+            printf("transmitting address and R/W resulted in NACK! Address given: %x\n", slave_address);
+            return false;
+        }
     }
     for (unsigned int i = 0; i < number_of_bytes_to_send; i++) {
         if (!I2C_write_byte(stream_of_bytes[i])) {
             return false;
         }
     }
-    if (end_transmission) I2C_stop();
+    if (end_transmission) {
+        I2C_stop();
+    }
     return true;
 }
+
 
 #endif // my_I2C.h
