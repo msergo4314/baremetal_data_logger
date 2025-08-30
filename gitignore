@@ -6,3 +6,7 @@
 # IDE files
 .vscode/
 *.swp
+*.elf
+*.mp4
+build/
+videos/

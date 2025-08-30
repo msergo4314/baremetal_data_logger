@@ -14,11 +14,7 @@
 void app_main(void)
 {
     printf("init success: %d\n", (int)ssd1306_init()); // could catch the value for checks
-    vTaskDelay(3000 / portTICK_PERIOD_MS);
     printf("Testing the OLED display...\n");
-
-    byte contrast = 255;
-    printf("Setting contrast to %d: %d\n", (int)contrast, (int)ssd1306_set_contrast(contrast));
 
     ssd1306_write_string_size8x8p("3...", 5*8, 0, 0);
     vTaskDelay(1000 / portTICK_PERIOD_MS);
@@ -26,7 +22,7 @@ void app_main(void)
     vTaskDelay(1000 / portTICK_PERIOD_MS);
     ssd1306_write_string_size8x8p("1...", 5*8, 0, 0);
     vTaskDelay(1000 / portTICK_PERIOD_MS);
-    SSD1306_reset_page(0);
+    ssd1306reset_page(0);
 
     // printf("Setting entire display on: %d\n", (int)ssd1306_entire_display_on());
     // vTaskDelay(1000 / portTICK_PERIOD_MS);
@@ -44,25 +40,25 @@ void app_main(void)
     ssd1306_pixel_coordinate p1 = {0, 63};
     ssd1306_pixel_coordinate p2 = {120, 50};
 
-    printf("trying to print vline...status: %d\n", (int)SSD1306_draw_vline(0, 0, 63, true));
+    printf("trying to print vline...status: %d\n", (int)ssd1306draw_vline(0, 0, 63, true));
     vTaskDelay(300 / portTICK_PERIOD_MS);
-    printf("trying to print hline...status: %d\n", (int)SSD1306_draw_hline(63, 0, 127, true));
+    printf("trying to print hline...status: %d\n", (int)ssd1306draw_hline(63, 0, 127, true));
     vTaskDelay(300 / portTICK_PERIOD_MS);
-    printf("trying to print line...status: %d\n", (int)SSD1306_draw_line(p1, p2, true));
+    printf("trying to print line...status: %d\n", (int)ssd1306draw_line(p1, p2, true));
     // printf("Screen clear: %d\n", (int)ssd1306_clear_screen());
     // vTaskDelay(1000 / portTICK_PERIOD_MS);
     
     vTaskDelay(1000 / portTICK_PERIOD_MS);
     byte x = 20, y = 31;
     ssd1306_clear_screen();
-    printf("trying to turn on pixel at (%d, %d): %d\n", (int)x, (int)y, (int)SSD1306_set_pixel_xy(x, y, ON, true));
+    printf("trying to turn on pixel at (%d, %d): %d\n", (int)x, (int)y, (int)ssd1306_set_pixel_xy(x, y, ON, true));
     vTaskDelay(2000 / portTICK_PERIOD_MS);
     ssd1306_clear_screen();
     ssd1306_pixel_coordinate A = {.x=0, .y=0}, B = {.x=1, .y=1};
 
-    SSD1306_draw_rectangle(A, 8, 8, 1, false);
+    ssd1306draw_rectangle(A, 8, 8, 1, false);
     vTaskDelay(1000 / portTICK_PERIOD_MS);
-    SSD1306_draw_rectangle(B, 3, 3, 1, true);
+    ssd1306draw_rectangle(B, 3, 3, 1, true);
     vTaskDelay(1000 / portTICK_PERIOD_MS);
     ssd1306_write_string_size8x8p("Scale", 8, 0, 0);
     // // printf("trying to turn off: %d\n", (int)ssd1306_off());

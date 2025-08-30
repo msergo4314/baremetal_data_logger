@@ -76,6 +76,7 @@ static void I2C_stop(void) {
     return;
 }
 
+// initialize the SDA and SCL pins of the ESP32
 void I2C_init(void) {
     gpio_reset_pin(I2C_SCL);
     gpio_reset_pin(I2C_SDA);
