@@ -21,7 +21,12 @@
     "sdkconfig.h": "c",
     "gpio.h": "c",
     "task.h": "c",
-    "freertos.h": "c"
+    "freertos.h": "c",
+    "esp_flash.h": "c",
+    "esp_system.h": "c",
+    "esp_err.h": "c",
+    "esp_chip_info.h": "c",
+    "esp_rtc_time.h": "c"
   },
   "idf.flashType": "UART"
 }

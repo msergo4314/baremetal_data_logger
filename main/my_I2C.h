@@ -1,17 +1,16 @@
-#ifndef my_I2C // header guard
-
-#define my_I2C
+/*
+A baremetal I2C library. Highly optimized for up to ~730K bits/sec speeds (writing the whole display at once)
+*/
+#ifndef MY_I2C // header guard
+#define MY_I2C
 #include "driver/gpio.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "rom/ets_sys.h"
 
 typedef uint8_t byte;
 
 // these are the normal SDA/SCL pins, but will be used as any other GPIO pins
 #define I2C_SDA GPIO_NUM_21
 #define I2C_SCL GPIO_NUM_22
-// #define _NOP() __asm__ __volatile__ ("nop");
+#define _NOP() __asm__ __volatile__ ("nop");
 
 typedef enum {
     READ = 0x1,
@@ -53,26 +52,34 @@ static inline void sda_low(void){ gpio_set_level(I2C_SDA, 0); }
 static inline void scl_high(void){ gpio_set_level(I2C_SCL, 1); }
 static inline void scl_low(void){ gpio_set_level(I2C_SCL, 0); }
 
-// static inline void I2C_delay(void) {_NOP();} // can also do fixed time interval using ets_delay_us() or vTaskDelay()
-
-static inline void I2C_delay(void) {ets_delay_us(1);} // standard I2C uses 4 microsecond wait times
+// 5 NOPs is the lowest possible delay we can have before the SSD1306 NACKs
+static inline void I2C_delay(void) {for (volatile int i = 0; i < 5; i++) {_NOP()}} // standard I2C uses 4 microsecond wait times
+// static inline void I2C_delay(void) {esp_rom_delay_us(1);} // standard I2C uses 4 microsecond wait times
 
 static void I2C_start(void) {
-    // give the lines time to fully rise to 3.3V (1 us works in testing, best to do more)
-    sda_high(); I2C_delay();
-    scl_high(); I2C_delay();
-
-    sda_low(); I2C_delay();
-    scl_low();
+    /*
+    START condition is defined as SDA transitioning HIGH to LOW while SCL remains HIGH
+    */
+    sda_high();
+    scl_high();
+    // give the lines time to fully rise to 3.3V (1 us works in testing)
     I2C_delay();
+
+    sda_low(); //I2C_delay();
+
+    // setting SCL low is not part of the start but is necessary for the subsequent data transmissions
+    scl_low();
     return;
 }
 
 static void I2C_stop(void) {
-    sda_low(); I2C_delay();
-
-    scl_high(); I2C_delay();
-    sda_high(); I2C_delay();
+    /*
+    STOP condition is defined as SDA transitioning from LOW to HIGH while SCL remains HIGH.
+    delays are not necessary here since the function is to spec regardless
+    */
+    sda_low(); //I2C_delay();
+    scl_high(); //I2C_delay();
+    sda_high(); //I2C_delay();
     return;
 }
 
@@ -90,30 +97,44 @@ void I2C_init(void) {
         // .intr_type = GPIO_INTR_ANYEDGE // no need for interrupts since we will manually implement START/STOP conditions
     };
     gpio_config(&I2C_config); // sets up the lines
-    // drive both lines high for idle state
-    sda_high();
-    scl_high();
     I2C_stop(); // force the bus to be idle. Without this, the first communication attempt will not work (but second will)
     return;
 }
 
-bool I2C_write_byte(byte byte_to_write) {
-    // NOTE: SDA can only transition when SCL is LOW and must be held when SCL is HIGH
-
-    // write MSBs first --> 7 down to 0
-    for(int i=7; i>=0; i--) {
+static bool I2C_write_byte(const byte byte_to_write) {
+    /* 
+    NOTE: SDA can only transition when SCL is LOW and must be held when SCL is HIGH
+    write MSBs first --> 7 down to 0
+    SCL MUST be LOW when this function is called
+    */ 
+    for(int i = 7; i >= 0; i--) {
         // bitwise AND with left shifted 1 to pick a single bit
         (byte_to_write & (1 << i)) ? sda_high() : sda_low(); // write SDA HIGH/LOW depending on the bits
-        I2C_delay(); // delay to let the value of SDA propagate
-        scl_high(); I2C_delay(); // set SCL high, delay helps for rise time. At this point, the slave will read SDA
+        /*
+        can only delay if you write a 1 to SDA since rise times >> fall times
+        However, this is not to spec and a little risky for small performance gains.
+        */
+        // if (byte_to_write & (1 << i)) 
+        // I2C_delay(); // delay to let the value of SDA propagate
+        /*
+        set SCL high for fixed time period. At this point, the slave will read SDA
+        SDA must be stable at this point.
+        */
+        scl_high();
+        I2C_delay(); 
         scl_low(); // clock must be low when SDL transitions
-        I2C_delay();
+
+        /*
+        Without the delay, the high period is longer than the low period
+        I2C actually doesn't care about the duty cycle of the 
+        */
+        // I2C_delay(); // UNCOMMENT FOR EVEN CLOCK DUTY CYCLE. 
     }
     sda_high(); // release SDA for slave ACK to pull it low
-    scl_high(); I2C_delay(); // set SCL high, then read SDA for ACK/NACK
+    scl_high(); 
+    I2C_delay(); // set SCL high, then read SDA for ACK/NACK
     bool ack = (gpio_get_level(I2C_SDA) == 0);
     scl_low(); // set SCL low if we need to write more bits using this function
-    // I2C_delay();
     return ack;
 }
 
@@ -133,7 +154,7 @@ byte read_byte(bool ack) {
         do {
             scl_high();
         } while (gpio_get_level(I2C_SCL) == 0); // clock stretching
-        I2C_delay();
+        I2C_delay(); // may not need this since SCL just got set to 0
         if (gpio_get_level(I2C_SDA) == 1) data |= 1; // append a 1 on the right if SDA is high
         I2C_delay();
         scl_low();

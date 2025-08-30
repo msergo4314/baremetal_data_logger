@@ -1,9 +1,6 @@
 #ifndef ssd1306_I2C // header guard
 
 #define ssd1306_I2C
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "rom/ets_sys.h"
 #include <string.h>
 
 #include "my_I2C.h" // custom I2C bit-banged protocol implementation
@@ -12,6 +9,12 @@
 #define ssd1306NUM_PAGES 8 // a page is a horizontal slice of the screen 8 pixels tall
 #define ssd1306OLED_WIDTH 128 // in pixels
 #define ssd1306OLED_HEIGHT 64 // in pixels
+
+// coordinates
+#define TOP_LEFT (0, 0)
+#define TOP_RIGHT (ssd1306OLED_WIDTH - 1, 0)
+#define BOTTOM_LEFT (0, ssd1306OLED_HEIGHT - 1)
+#define BOTTOM_RIGHT (ssd1306OLED_WIDTH - 1, ssd1306OLED_HEIGHT - 1)
 
 // these masks will be used to determine what contorl bytes will be for transmissions
 
@@ -70,7 +73,7 @@ bool ssd1306_normal_display(void);
 bool ssd1306_nop(void);
 bool ssd1306_display_on(void);
 bool ssd1306_display_off(void);
-bool ssd1306_update_display(void);
+bool ssd1306_refresh_display(void);
 bool ssd1306_set_page_address(const byte page);
 bool ssd1306_set_column_address(const byte column);
 bool ssd1306_set_column_start_and_end(const byte column_start, const byte column_end);
@@ -78,14 +81,14 @@ bool ssd1306_clear_screen(void);
 bool ssd1306_write_string_size8x8p(const char* string_to_print, const byte x_offset_pixels_left,
     const byte x_offset_pixels_right, byte start_page);
 bool ssd1306_show_RAM_only(void);
-bool ssd1306refresh_page(const byte page_to_refresh);
+bool ssd1306_refresh_page(const byte page_to_refresh);
 
 bool ssd1306_set_pixel(const ssd1306_pixel_coordinate pixel_coords, ON_OFF on_or_off, bool flush);
 bool ssd1306_set_pixel_xy(const byte x, const byte y, ON_OFF on_or_off, bool flush);
 bool verify_coordinates_are_valid(const ssd1306_pixel_coordinate coordinate);
-bool ssd1306draw_line(const ssd1306_pixel_coordinate p1, const ssd1306_pixel_coordinate p2, bool flush);
-bool ssd1306draw_hline(const byte x, const byte y1, const byte y2, bool flush);
-bool ssd1306draw_vline(const byte y, const byte x1, const byte x2, bool flush);
+bool ssd1306_draw_line(const ssd1306_pixel_coordinate p1, const ssd1306_pixel_coordinate p2, bool flush);
+bool ssd1306_draw_hline(const byte x, const byte y1, const byte y2, bool flush);
+bool ssd1306_draw_vline(const byte y, const byte x1, const byte x2, bool flush);
 static inline bool ssd1306_write_command(const byte command_code);
 static inline bool ssd1306_write_command2(byte cmd, byte arg);
 // the SSD1306 supports 3 addressing modes: Page, Horizontal, and Vertical
@@ -221,7 +224,7 @@ static const byte font8x8[95][8] = {
 byte* get_bitmap_from_ascii(byte character) {
     if (character < 32 || character > 126) {
         // if invalid, don't set any pixels (will look like nothing or a space)
-        return (byte*)font8x8[0];
+        return (byte*)font8x8[0]; // return all 0s
     }
     return (byte*)font8x8[character - 32];
 }
@@ -259,17 +262,19 @@ bool ssd1306_set_addressing_mode(const ADDRESSING_MODE mode) {
 bool ssd1306_init() {
     I2C_init();
 
+    /*
+    Here we set a bunch of parameters to recommended values
+    This is necessary to make sure we can boot the display into a known state (all parameters defined) on system reset
+    */
+
     // Always reset the display into a known state
     if (!ssd1306_display_off()) return false; // Display OFF
-
     // Set display clock divide ratio/oscillator frequency
     // 0x80 = recommended oscillator frequency
     if (!ssd1306_write_command2(0xD5, 0x80)) return false;
-
     // Set multiplex ratio
     // 0x3F = 1/64 duty (for 128x64 display)
     if (!ssd1306_write_command2(0xA8, 0x3F)) return false;
-
     // Set display offset
     // 0x00 = no vertical shift
     if (!ssd1306_write_command2(0xD3, 0x00)) return false;
@@ -296,7 +301,7 @@ bool ssd1306_init() {
     // 0x12 = alternative COM pin configuration, disable left/right remap
     if (!ssd1306_write_command2(0xDA, 0x12)) return false;
 
-    // Set contrast
+    // Set contrast to max
     if (!ssd1306_set_contrast(0xFF)) return false;
 
     // Set pre-charge period
@@ -309,21 +314,13 @@ bool ssd1306_init() {
 
     // Set normal (non-inverted) display mode
     if (!ssd1306_normal_display()) return false;
-
-    // Resume to display contents of GDDRAM (not all-on)
-    if (!ssd1306_show_RAM_only()) return false;
-
-    // Clear the display RAM
     if (!ssd1306_clear_screen()) return false;
-
-    // Turn the display ON
     if (!ssd1306_display_on()) return false;
 
     // Default to PAGE addressing mode
     current_mode = PAGE;
     return true;
 }
-
 
 // Send a single command byte
 static inline bool ssd1306_write_command(byte cmd) {
@@ -377,12 +374,12 @@ bool ssd1306_display_off(void) {
 }
 
 // displays the contents of the INTERNAL GDDRAM (the 2D array)
-bool ssd1306_update_display(void) {
+bool ssd1306_refresh_display(void) {
     if (current_mode != PAGE) {
         if (!ssd1306_set_addressing_mode(PAGE)) return false;
     }
     // we will write the internal memory for each page instead of all at once for reliability
-    // this is because I2C could fail if we hold the bus too long
+    // this is because I2C could fail if we hold the bus too long (not likely to happen though)
     for (byte page = 0; page < 8; page++) {
         ssd1306_set_page_address(page);
         ssd1306_set_column_address(0);
@@ -433,11 +430,11 @@ bool ssd1306_set_column_start_and_end(const byte column_start, const byte column
     return ssd1306_write_bytes(transmission, sizeof(transmission), true, true);
 }
 
-// clears screen by setting GDDRAM to 0 and calling ssd1306_update_display()
+// clears screen by setting GDDRAM to 0 and calling ssd1306_refresh_display()
 bool ssd1306_clear_screen(void) {
     // to clear, write all 0s into RAM buffer, then write the whole buffer
     memset(ssd1306GDDRAM_buffer, 0x0, 1024); // set the internal buffer to be all 0s
-    return ssd1306_update_display();
+    return ssd1306_refresh_display();
 }
 
 // alternate method of clearing
@@ -456,7 +453,7 @@ bool ssd1306_clear_screen(void) {
 //             return false;
 //         }
 //     }
-//     ssd1306_update_display();
+//     ssd1306_refresh_display();
 //     memset(ssd1306GDDRAM_buffer, 0x0, 1024); // set the tracker to be all 0s
 //     return true;
 // }
@@ -475,10 +472,6 @@ bool ssd1306_write_string_size8x8p(const char* string_to_print, const byte x_off
         return false;
     }
     size_t len = strlen(string_to_print);
-    if (len >= 16) {
-        // likely undesired behaviour
-        printf("warning: string will overwrite itself on OLED\n");
-    }
     // There are only 8 pages so start_page must be < 8
     // we want to be able to print at least one character per page
     if (start_page >= ssd1306NUM_PAGES ||
@@ -517,7 +510,7 @@ bool ssd1306_write_string_size8x8p(const char* string_to_print, const byte x_off
     // Refresh only the modified pages
     for (int p = 0; p < ssd1306NUM_PAGES; p++) {
         if (page_dirty[p]) {
-            ssd1306refresh_page(p);
+            ssd1306_refresh_page(p);
         }
     }
     return true;
@@ -530,7 +523,7 @@ height determines y distance in pixels including the origin
 always draws down and to the right
 */
 
-bool ssd1306draw_rectangle(const ssd1306_pixel_coordinate origin, const byte width_px, const byte height_px, const byte border_thickness_px, bool fill) {
+bool ssd1306_draw_rectangle(const ssd1306_pixel_coordinate origin, const byte width_px, const byte height_px, const byte border_thickness_px, bool fill) {
     byte starting_page = origin.y / 8;
     byte vertical_bit = origin.y % 8;
     byte starting_column = origin.x;
@@ -552,7 +545,7 @@ bool ssd1306draw_rectangle(const ssd1306_pixel_coordinate origin, const byte wid
         byte tracker = 0;
         byte pages_to_refresh = 1;
         for (byte y = origin.y; y < origin.y + height_px; y++) {
-            if (!ssd1306draw_hline(y, origin.x, origin.x + width_px - 1, false)) return false;
+            if (!ssd1306_draw_hline(y, origin.x, origin.x + width_px - 1, false)) return false;
             tracker++;
             if (tracker == 8) { // 8 pixels per page
                 tracker = 0;
@@ -563,24 +556,24 @@ bool ssd1306draw_rectangle(const ssd1306_pixel_coordinate origin, const byte wid
         for (byte i = 0; i < pages_to_refresh; i++) {
             byte page_to_refresh = starting_page + i;
             if (page_to_refresh >= ssd1306NUM_PAGES) break; // don't exceed 7
-            if (!ssd1306refresh_page(page_to_refresh)) return false;
+            if (!ssd1306_refresh_page(page_to_refresh)) return false;
         }
         return true;
     } else {
         // Draw borders of thickness border_thickness_px
         for (byte t = 0; t < border_thickness_px; t++) {
             // Top border
-            ssd1306draw_hline(origin.y + t, origin.x, origin.x + width_px - 1, false);
+            ssd1306_draw_hline(origin.y + t, origin.x, origin.x + width_px - 1, false);
             // Bottom border
-            ssd1306draw_hline(origin.y + height_px - t - 1, origin.x, origin.x + width_px - 1, false);
+            ssd1306_draw_hline(origin.y + height_px - t - 1, origin.x, origin.x + width_px - 1, false);
             // Left border
-            ssd1306draw_vline(origin.x + t, origin.y, origin.y + height_px - 1, false);
+            ssd1306_draw_vline(origin.x + t, origin.y, origin.y + height_px - 1, false);
             // Right border
-            ssd1306draw_vline(origin.x + width_px - t - 1, origin.y, origin.y + height_px - 1, false);
+            ssd1306_draw_vline(origin.x + width_px - t - 1, origin.y, origin.y + height_px - 1, false);
         }
     }
     // Push buffer to display (you could optimize to refresh only affected pages)
-    return ssd1306_update_display();
+    return ssd1306_refresh_display();
 }
 
 bool ssd1306_set_pixel_xy(const byte x, const byte y, ON_OFF on_or_off, bool flush) {
@@ -625,12 +618,12 @@ bool ssd1306_set_pixel(const ssd1306_pixel_coordinate pixel_coords, ON_OFF on_or
         // printf("Byte value is now: %d\n", (int)ssd1306GDDRAM_buffer[page][column]);
     }
     // update the screen only if specified
-    if (flush) return ssd1306refresh_page(page);
+    if (flush) return ssd1306_refresh_page(page);
     return true;
 }
 
 // draws a line 1 pixel wide
-bool ssd1306draw_line(const ssd1306_pixel_coordinate p1, const ssd1306_pixel_coordinate p2, bool flush) {
+bool ssd1306_draw_line(const ssd1306_pixel_coordinate p1, const ssd1306_pixel_coordinate p2, bool flush) {
     if (!verify_coordinates_are_valid(p1) || !verify_coordinates_are_valid(p2)) {
         printf("Invalid coordinates to draw line\n");
         return false;
@@ -640,9 +633,9 @@ bool ssd1306draw_line(const ssd1306_pixel_coordinate p1, const ssd1306_pixel_coo
     int x2 = p2.x, y2 = p2.y;
 
     if (x1 == x2) {
-        return ssd1306draw_vline(x1, y1, y2, flush);
+        return ssd1306_draw_vline(x1, y1, y2, flush);
     } else if (y1 == y2) {
-        return ssd1306draw_hline(y1, x1, x2, flush);
+        return ssd1306_draw_hline(y1, x1, x2, flush);
     }
 
     // Implement Bresenham's line algorithm (from wikipedia...)
@@ -665,20 +658,20 @@ bool ssd1306draw_line(const ssd1306_pixel_coordinate p1, const ssd1306_pixel_coo
         if (e2 <= dx) { err += dx; y1 += sy; }
     }
 
-    return ssd1306_update_display(); // Use partial page update for better speed
+    return ssd1306_refresh_display(); // Use partial page update for better speed
 }
 
 bool ssd1306reset_page(const byte page) {
     memset(ssd1306GDDRAM_buffer[page], 0x0, 128);
-    return ssd1306refresh_page(page);
+    return ssd1306_refresh_page(page);
 }
 
 // Horizontal line of width 1 pixel
-bool ssd1306draw_hline(const byte y, const byte x1, const byte x2, bool flush) {
+bool ssd1306_draw_hline(const byte y, const byte x1, const byte x2, bool flush) {
     // Ensure coordinates are valid
     if (!verify_coordinates_are_valid((ssd1306_pixel_coordinate){.x = x1, .y = y}) ||
         !verify_coordinates_are_valid((ssd1306_pixel_coordinate){.x = x2, .y = y})) {
-        printf("invalid coordinates given in ssd1306draw_hline()\n");
+        printf("invalid coordinates given in ssd1306_draw_hline()\n");
         return false;
     }
     byte start = (x1 < x2) ? x1 : x2;
@@ -690,34 +683,42 @@ bool ssd1306draw_hline(const byte y, const byte x1, const byte x2, bool flush) {
         if (!ssd1306_set_pixel(current, ON, false)) return false;
     }
     if (flush) {
-        return ssd1306refresh_page(y / 8);
+        return ssd1306_refresh_page(y / 8);
     }
     return true;
 }
 
 // vertical line of width 1 pixel
-bool ssd1306draw_vline(const byte x, const byte y1, const byte y2, bool flush) {
+bool ssd1306_draw_vline(const byte x, const byte y1, const byte y2, bool flush) {
     if (!verify_coordinates_are_valid((ssd1306_pixel_coordinate){.x = x, .y = y1}) || 
         !verify_coordinates_are_valid((ssd1306_pixel_coordinate){.x = x, .y = y2})) {
-        printf("invalid coordinates given in ssd1306draw_vline()\n");
+        printf("invalid coordinates given in ssd1306_draw_vline()\n");
         return false;
     }
     byte start = (y1 < y2) ? y1 : y2;
     byte end   = (y1 > y2) ? y1 : y2;
+    bool dirty_pages[ssd1306NUM_PAGES] = {false};
 
     ssd1306_pixel_coordinate current = {.x = x, .y = 0}; // y will be set in the loop
     for (byte y = start; y <= end; y++) {
         current.y = y;
         if (!ssd1306_set_pixel(current, ON, false)) return false;
+        if (dirty_pages[current.y / 8] == false) {
+            dirty_pages[current.y / 8] = true;
+        }
     }
     if (flush) {
-        return ssd1306_update_display();
+        for (byte i = 0; i < ssd1306NUM_PAGES; i++) {
+            if (dirty_pages[i]) {
+                ssd1306_refresh_page(i);
+            }
+        }
     }
     return true;
 }
 
 // faster than refreshing the whole display
-bool ssd1306refresh_page(const byte page_to_refresh) {
+bool ssd1306_refresh_page(const byte page_to_refresh) {
     if (page_to_refresh >= ssd1306NUM_PAGES) {
         printf("Page must be in range 0-7\n");
         return false; // SSD1306 has 8 pages (0–7)
