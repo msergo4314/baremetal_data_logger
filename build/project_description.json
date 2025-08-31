@@ -1,7 +1,7 @@
 {
     "version":            "1.2",
     "project_name":       "Baremetal",
-    "project_version":    "4acaebd-dirty",
+    "project_version":    "dd31ded-dirty",
     "project_path":       "C:/Users/marti/ESP_32_code/baremetal_data_logger",
     "idf_path":           "C:/Users/marti/esp/v5.5/esp-idf",
     "build_dir":          "C:/Users/marti/ESP_32_code/baremetal_data_logger/build",

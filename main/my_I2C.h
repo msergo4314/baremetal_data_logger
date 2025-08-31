@@ -10,7 +10,7 @@ typedef uint8_t byte;
 // these are the normal SDA/SCL pins, but will be used as any other GPIO pins
 #define I2C_SDA GPIO_NUM_21
 #define I2C_SCL GPIO_NUM_22
-#define _NOP() __asm__ __volatile__ ("nop");
+#define _NOP() __asm__ __volatile__ ("nop")
 
 typedef enum {
     READ = 0x1,
@@ -52,8 +52,9 @@ static inline void sda_low(void){ gpio_set_level(I2C_SDA, 0); }
 static inline void scl_high(void){ gpio_set_level(I2C_SCL, 1); }
 static inline void scl_low(void){ gpio_set_level(I2C_SCL, 0); }
 
-// 5 NOPs is the lowest possible delay we can have before the SSD1306 NACKs
-static inline void I2C_delay(void) {for (volatile int i = 0; i < 5; i++) {_NOP()}} // standard I2C uses 4 microsecond wait times
+// 5 NOPs is the lowest possible delay we can have before the SSD1306 NACKs consistently
+// 6 NOPs safer -- especially for longer wires
+static inline void I2C_delay(void) {for (volatile int i = 0; i < 6; i++) { _NOP(); }} // standard I2C uses 4 microsecond wait times
 // static inline void I2C_delay(void) {esp_rom_delay_us(1);} // standard I2C uses 4 microsecond wait times
 
 static void I2C_start(void) {
@@ -63,7 +64,8 @@ static void I2C_start(void) {
     sda_high();
     scl_high();
     // give the lines time to fully rise to 3.3V (1 us works in testing)
-    I2C_delay();
+    esp_rom_delay_us(1);
+    // I2C_delay();
 
     sda_low(); //I2C_delay();
 
@@ -79,7 +81,11 @@ static void I2C_stop(void) {
     */
     sda_low(); //I2C_delay();
     scl_high(); //I2C_delay();
-    sda_high(); //I2C_delay();
+    // esp_rom_delay_us(1);
+    sda_high(); 
+    
+    // the bus should be free for a small period before we can START again
+    esp_rom_delay_us(1);
     return;
 }
 
@@ -142,6 +148,13 @@ static bool I2C_write_byte(const byte byte_to_write) {
 static inline bool transmit_address_and_RW(byte address_of_slave, READ_OR_WRITE rw) {
     // the address needs to be 7 bits long. Left shift and insert read/write bit as the LSB
     return I2C_write_byte((address_of_slave << 1) | rw);
+}
+
+static inline bool find_device(const byte address_of_device) {
+    I2C_start();
+    bool success = transmit_address_and_RW(address_of_device, WRITE);
+    I2C_stop();
+    return success;
 }
 
 // ACK is used to indicate if we want to read further, NACK indicates no more transmission
