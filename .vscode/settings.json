@@ -26,7 +26,9 @@
     "esp_system.h": "c",
     "esp_err.h": "c",
     "esp_chip_info.h": "c",
-    "esp_rtc_time.h": "c"
+    "esp_rtc_time.h": "c",
+    "ssd1306_i2c.h": "c",
+    "mpu6050_i2c.h": "c"
   },
   "idf.flashType": "UART"
 }

@@ -1,7 +1,7 @@
 {
     "version":            "1.2",
     "project_name":       "Baremetal",
-    "project_version":    "dd31ded-dirty",
+    "project_version":    "e6ed0df-dirty",
     "project_path":       "C:/Users/marti/ESP_32_code/baremetal_data_logger",
     "idf_path":           "C:/Users/marti/esp/v5.5/esp-idf",
     "build_dir":          "C:/Users/marti/ESP_32_code/baremetal_data_logger/build",
@@ -1225,7 +1225,7 @@
             "managed_reqs": [],
             "managed_priv_reqs": [],
             "file": "C:/Users/marti/ESP_32_code/baremetal_data_logger/build/esp-idf/main/libmain.a",
-            "sources": [ "C:/Users/marti/ESP_32_code/baremetal_data_logger/main/main.c" ],
+            "sources": [ "C:/Users/marti/ESP_32_code/baremetal_data_logger/main/ssd1306_I2C.c", "C:/Users/marti/ESP_32_code/baremetal_data_logger/main/mpu6050_I2C.c", "C:/Users/marti/ESP_32_code/baremetal_data_logger/main/main.c", "C:/Users/marti/ESP_32_code/baremetal_data_logger/main/my_I2C.c" ],
             "include_dirs": []
         },
         "mbedtls": {

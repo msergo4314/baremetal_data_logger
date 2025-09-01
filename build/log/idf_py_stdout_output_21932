@@ -1,0 +1,37 @@
+Command: ninja all
+[1/9] Performing build step for 'bootloader'
+[1/1] C:\WINDOWS\system32\cmd.exe /C "cd /D C:\Users\marti\ESP_32_code\baremetal_data_logger\build\bootloader\esp-idf\esptool_py && C:\Espressif\python_env\idf5.5_py3.11_env\Scripts\python.exe C:/Users/marti/esp/v5.5/esp-idf/components/partition_table/check_sizes.py --offset 0x8000 bootloader 0x1000 C:/Users/marti/ESP_32_code/baremetal_data_logger/build/bootloader/bootloader.bin"
+Bootloader binary size 0x6680 bytes. 0x980 bytes (8%) free.
+[2/9] No install step for 'bootloader'
+[3/9] Completed 'bootloader'
+[4/9] Building C object esp-idf/main/CMakeFiles/__idf_main.dir/mpu6050_I2C.c.obj
+[5/9] Linking C static library esp-idf\main\libmain.a
+[6/9] Generating esp-idf/esp_system/ld/sections.ld
+[7/9] Linking CXX executable Baremetal.elf
+FAILED: Baremetal.elf 
+C:\WINDOWS\system32\cmd.exe /C "cd . && C:\Espressif\tools\xtensa-esp-elf\esp-14.2.0_20241119\xtensa-esp-elf\bin\xtensa-esp32-elf-g++.exe -mlongcalls -Wno-frame-address  -fno-builtin-memcpy -fno-builtin-memset -fno-builtin-bzero -fno-builtin-stpcpy -fno-builtin-strncpy -nostartfiles    -Wl,--cref -Wl,--defsym=IDF_TARGET_ESP32=0 -Wl,--Map=C:/Users/marti/ESP_32_code/baremetal_data_logger/build/Baremetal.map -Wl,--no-warn-rwx-segments -Wl,--orphan-handling=warn -fno-rtti -fno-lto -Wl,--gc-sections -Wl,--warn-common -T esp32.peripherals.ld -T esp32.rom.ld -T esp32.rom.api.ld -T esp32.rom.libgcc.ld -T esp32.rom.newlib-data.ld -T esp32.rom.syscalls.ld -T esp32.rom.libc-funcs.ld -T esp32.rom.newlib-reent-funcs.ld -T memory.ld -T sections.ld @CMakeFiles\Baremetal.elf.rsp -o Baremetal.elf && cd ."
+C:/Espressif/tools/xtensa-esp-elf/esp-14.2.0_20241119/xtensa-esp-elf/bin/../lib/gcc/xtensa-esp-elf/14.2.0/../../../../xtensa-esp-elf/bin/ld.exe: esp-idf/main/libmain.a(ssd1306_I2C.c.obj): in function `I2C_init':
+C:/Users/marti/ESP_32_code/baremetal_data_logger/main/my_I2C.h:94: multiple definition of `I2C_init'; esp-idf/main/libmain.a(main.c.obj):C:/Users/marti/ESP_32_code/baremetal_data_logger/main/my_I2C.h:94: first defined here
+C:/Espressif/tools/xtensa-esp-elf/esp-14.2.0_20241119/xtensa-esp-elf/bin/../lib/gcc/xtensa-esp-elf/14.2.0/../../../../xtensa-esp-elf/bin/ld.exe: esp-idf/main/libmain.a(ssd1306_I2C.c.obj): in function `I2C_read_byte':
+C:/Users/marti/ESP_32_code/baremetal_data_logger/main/my_I2C.h:162: multiple definition of `I2C_read_byte'; esp-idf/main/libmain.a(main.c.obj):C:/Users/marti/ESP_32_code/baremetal_data_logger/main/my_I2C.h:162: first defined here
+C:/Espressif/tools/xtensa-esp-elf/esp-14.2.0_20241119/xtensa-esp-elf/bin/../lib/gcc/xtensa-esp-elf/14.2.0/../../../../xtensa-esp-elf/bin/ld.exe: esp-idf/main/libmain.a(ssd1306_I2C.c.obj): in function `I2C_send_byte_stream':
+C:/Users/marti/ESP_32_code/baremetal_data_logger/main/my_I2C.h:186: multiple definition of `I2C_send_byte_stream'; esp-idf/main/libmain.a(main.c.obj):C:/Users/marti/ESP_32_code/baremetal_data_logger/main/my_I2C.h:186: first defined here
+C:/Espressif/tools/xtensa-esp-elf/esp-14.2.0_20241119/xtensa-esp-elf/bin/../lib/gcc/xtensa-esp-elf/14.2.0/../../../../xtensa-esp-elf/bin/ld.exe: esp-idf/main/libmain.a(ssd1306_I2C.c.obj): in function `I2C_read_one':
+C:/Users/marti/ESP_32_code/baremetal_data_logger/main/my_I2C.h:211: multiple definition of `I2C_read_one'; esp-idf/main/libmain.a(main.c.obj):C:/Users/marti/ESP_32_code/baremetal_data_logger/main/my_I2C.h:211: first defined here
+C:/Espressif/tools/xtensa-esp-elf/esp-14.2.0_20241119/xtensa-esp-elf/bin/../lib/gcc/xtensa-esp-elf/14.2.0/../../../../xtensa-esp-elf/bin/ld.exe: esp-idf/main/libmain.a(ssd1306_I2C.c.obj): in function `I2C_read_many':
+C:/Users/marti/ESP_32_code/baremetal_data_logger/main/my_I2C.h:232: multiple definition of `I2C_read_many'; esp-idf/main/libmain.a(main.c.obj):C:/Users/marti/ESP_32_code/baremetal_data_logger/main/my_I2C.h:232: first defined here
+C:/Espressif/tools/xtensa-esp-elf/esp-14.2.0_20241119/xtensa-esp-elf/bin/../lib/gcc/xtensa-esp-elf/14.2.0/../../../../xtensa-esp-elf/bin/ld.exe: esp-idf/main/libmain.a(ssd1306_I2C.c.obj): in function `get_bitmap_from_ascii':
+C:/Users/marti/ESP_32_code/baremetal_data_logger/main/ssd1306_I2C.h:199: multiple definition of `get_bitmap_from_ascii'; esp-idf/main/libmain.a(main.c.obj):C:/Users/marti/ESP_32_code/baremetal_data_logger/main/ssd1306_I2C.h:199: first defined here
+C:/Espressif/tools/xtensa-esp-elf/esp-14.2.0_20241119/xtensa-esp-elf/bin/../lib/gcc/xtensa-esp-elf/14.2.0/../../../../xtensa-esp-elf/bin/ld.exe: esp-idf/main/libmain.a(ssd1306_I2C.c.obj):C:/Users/marti/ESP_32_code/baremetal_data_logger/main/ssd1306_I2C.h:58: multiple definition of `ssd1306GDDRAM_buffer'; esp-idf/main/libmain.a(main.c.obj):C:/Users/marti/ESP_32_code/baremetal_data_logger/main/ssd1306_I2C.h:58: first defined here
+C:/Espressif/tools/xtensa-esp-elf/esp-14.2.0_20241119/xtensa-esp-elf/bin/../lib/gcc/xtensa-esp-elf/14.2.0/../../../../xtensa-esp-elf/bin/ld.exe: esp-idf/main/libmain.a(mpu6050_I2C.c.obj): in function `I2C_init':
+C:/Users/marti/ESP_32_code/baremetal_data_logger/main/my_I2C.h:94: multiple definition of `I2C_init'; esp-idf/main/libmain.a(main.c.obj):C:/Users/marti/ESP_32_code/baremetal_data_logger/main/my_I2C.h:94: first defined here
+C:/Espressif/tools/xtensa-esp-elf/esp-14.2.0_20241119/xtensa-esp-elf/bin/../lib/gcc/xtensa-esp-elf/14.2.0/../../../../xtensa-esp-elf/bin/ld.exe: esp-idf/main/libmain.a(mpu6050_I2C.c.obj): in function `I2C_read_byte':
+C:/Users/marti/ESP_32_code/baremetal_data_logger/main/my_I2C.h:162: multiple definition of `I2C_read_byte'; esp-idf/main/libmain.a(main.c.obj):C:/Users/marti/ESP_32_code/baremetal_data_logger/main/my_I2C.h:162: first defined here
+C:/Espressif/tools/xtensa-esp-elf/esp-14.2.0_20241119/xtensa-esp-elf/bin/../lib/gcc/xtensa-esp-elf/14.2.0/../../../../xtensa-esp-elf/bin/ld.exe: esp-idf/main/libmain.a(mpu6050_I2C.c.obj): in function `I2C_send_byte_stream':
+C:/Users/marti/ESP_32_code/baremetal_data_logger/main/my_I2C.h:186: multiple definition of `I2C_send_byte_stream'; esp-idf/main/libmain.a(main.c.obj):C:/Users/marti/ESP_32_code/baremetal_data_logger/main/my_I2C.h:186: first defined here
+C:/Espressif/tools/xtensa-esp-elf/esp-14.2.0_20241119/xtensa-esp-elf/bin/../lib/gcc/xtensa-esp-elf/14.2.0/../../../../xtensa-esp-elf/bin/ld.exe: esp-idf/main/libmain.a(mpu6050_I2C.c.obj): in function `I2C_read_one':
+C:/Users/marti/ESP_32_code/baremetal_data_logger/main/my_I2C.h:211: multiple definition of `I2C_read_one'; esp-idf/main/libmain.a(main.c.obj):C:/Users/marti/ESP_32_code/baremetal_data_logger/main/my_I2C.h:211: first defined here
+C:/Espressif/tools/xtensa-esp-elf/esp-14.2.0_20241119/xtensa-esp-elf/bin/../lib/gcc/xtensa-esp-elf/14.2.0/../../../../xtensa-esp-elf/bin/ld.exe: esp-idf/main/libmain.a(mpu6050_I2C.c.obj): in function `I2C_read_many':
+C:/Users/marti/ESP_32_code/baremetal_data_logger/main/my_I2C.h:232: multiple definition of `I2C_read_many'; esp-idf/main/libmain.a(main.c.obj):C:/Users/marti/ESP_32_code/baremetal_data_logger/main/my_I2C.h:232: first defined here
+collect2.exe: error: ld returned 1 exit status
+ninja: build stopped: subcommand failed.
