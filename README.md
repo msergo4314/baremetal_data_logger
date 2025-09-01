@@ -2,56 +2,42 @@
 
 # Baremetal data logger
 
-A project that uses a ssd1306 OLED display, MPU accelerometer, and 4 GB SD card to log acceleration in real time using only user-created libraries and manual implementation of I2C and SPI protocols using the ESP32-WROOM from FREENOVE
+A project that uses a ssd1306 OLED display, MPU6050 accelerometer, and 4 GB SD card to log acceleration data in real time using only user-created libraries and manual implementation of I2C and SPI protocols using the ESP32-WROOM from FREENOVE. The main goal is to achieve a deep understanding of the protocols used for the sensors by bit-banging the implementations.
 
 ## Hardware required
 
-add pictures of the parts here, basic info, cost, etc
+-ESP32 development board. I have an ESP32-WROOM from Freenove which I got [on amazon](https://www.amazon.ca/Freenove-ESP32-WROOM-Compatible-Wireless-Detailed/dp/B0C9THDPXP?crid=198OSIGBJDI3Rdib=eyJ2IjoiMSJ9_RNb2EnB-vTx26Y_kdThalmX3FU6JsrCFgCe6Pp3BjdiJ3rSPFwcWXmg7JhW_k-Uhs2DIxjkTxl8TVqrOkIhPIqTTykvuwskMtEYbAexgBFr3vn79kzCbFaOEE2WeHtZuk5Cvj0ZxAG3_Hio0AwUnQYg39VCaFLM_aYXhMgUg0kfK9B_xmNGQGi6__Nx8_OPiArDBP2Ogq6ts5TjK4jN0t__8Jy_Hw-jO6xWCmEnsvrDnKnvkxo9IEEFMf8WkpjH2lU23Cohr_um5Q_q5nYJDwVvmRvKmMY2realUr6lHNI.UVQG43AL5AnkkFRP_ahrdaAwv5G_Ul68BJW8abd-D4w&dib_tag=se&keywords=esp32&qid=1756687508&sprefix=es%2Caps%2C149&sr=8-7&th=1)
 
+-SSD1306 OLED display. I got one from Adafruit ([here](https://www.adafruit.com/product/326)). Having a breakout board is not strictly necessary but will make this project much simpler. The STEMMA QT cables that Adafruit makes were really useful for keeping the wiring clean and sturdy so I reccomend those too.
 
-REST IS LEFT FROM SAMPLE HELLOWORLD README
+-MPU6050 Accelerometer/Gyroscope. I got a breakout board from Adafruit ([here](https://www.adafruit.com/product/3886)) which also uses the STEMMA cables.
 
-## How to use example
+-4 GB SPI SD card. Have not coded this one yet...[link](https://www.adafruit.com/product/6039). The STEMMA cables are for I2C, so this breakout board can't use them. You will have to solder in the provided header pins (also haven't done this...yet)
 
-Follow detailed instructions provided specifically for this example.
+## How to use
 
-Select the instructions depending on Espressif chip installed on your development board:
+You will need the ESP-idf since this an ESP-idf project file. I used the VScode extension, which works nicely. You just need the files in the main folder and the rest will be done automatically. I specifically chose to use the ESP-idf environment instead of the Arduino IDE because it is closer to proffessional development. Additionally, ESP-idf exclusively uses C, while the Arduino IDE uses a mix of C/C++. I have only ever used C and prefer it, so ESP-idf is more attractive in that way. 
 
-- [ESP32 Getting Started Guide](https://docs.espressif.com/projects/esp-idf/en/stable/get-started/index.html)
-- [ESP32-S2 Getting Started Guide](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/get-started/index.html)
+One drawback of the ESP-idf is that Adafruit does NOT provide their own libraries for these devices for ESP-idf. They provide Arduino libraries and some other options but not ESP-idf components. This is not an issue for this project, since every driver is 100% custom made, but it means that working with the devices using ESP-idf would require downloading some wrapper components if you wanted to use pre built libraries (you normally do).
 
-
-## Example folder contents
-
-The project **hello_world** contains one source file in C language [hello_world_main.c](main/hello_world_main.c). The file is located in folder [main](main).
-
-ESP-IDF projects are built using CMake. The project build configuration is contained in `CMakeLists.txt` files that provide set of directives and instructions describing the project's source files and targets (executable, library, or both).
-
-Below is short explanation of remaining files in the project folder.
+## main folder contents
 
 ```
 ├── CMakeLists.txt
-├── pytest_hello_world.py      Python script used for automated testing
 ├── main
 │   ├── CMakeLists.txt
-│   └── hello_world_main.c
+│   ├── main.c
+│   ├── mpu6050_I2C.c
+│   ├── mpu6050_I2C.h
+│   ├── my_I2C.c
+│   ├── my_I2C.h
+│   ├── ssd1306_I2C.c
+│   └── ssd1306_I2C.h
 └── README.md                  This is the file you are currently reading
 ```
 
-For more information on structure and contents of ESP-IDF projects, please refer to Section [Build System](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/build-system.html) of the ESP-IDF Programming Guide.
+The project **baremetal_data_logger** contains one source file in C language [main.c](main/main.c). The file is located in folder [main](main). However, main.c is only responsible for the high level abstraction -- The I2C and SPI protocols are located in my_I2C.h, my_SPI.h, and the corresponding C files (my_I2C.c and my_SPI.c). These provide a bit banged implementation of each protocol. Each of the devices has it's own header and C file which depend on the corresponding protocol headers. The OLED and MPU use I2C while the SD card uses SPI. The files for the devices contain wrappers for some of the protocol functions and provide high level functionality which is used in main (see below for each).
 
-## Troubleshooting
+Below is short explanation of remaining files in the project folder.
 
-* Program upload failure
-
-    * Hardware connection is not correct: run `idf.py -p PORT monitor`, and reboot your board to see if there are any output logs.
-    * The baud rate for downloading is too high: lower your baud rate in the `menuconfig` menu, and try again.
-
-## Technical support and feedback
-
-Please use the following feedback channels:
-
-* For technical queries, go to the [esp32.com](https://esp32.com/) forum
-* For a feature request or bug report, create a [GitHub issue](https://github.com/espressif/esp-idf/issues)
-
-We will get back to you as soon as possible.
+## my_I2C.h and my_I2C.c ##
