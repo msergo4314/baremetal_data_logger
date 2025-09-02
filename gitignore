@@ -8,5 +8,6 @@
 *.swp
 *.elf
 *.mp4
+*.old
 build/
 videos/

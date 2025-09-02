@@ -22,6 +22,8 @@ for each byte of data received by the slave (including address), an ACK is sent.
 NOTE: one frame can have multiple bytes of data and therefore multiple ACKs
 */
 
+#define _NOP() __asm__ __volatile__ ("nop")
+
 // helpers not to be used outside of this file
 static inline void sda_high(void);
 static inline void sda_low(void);
@@ -38,6 +40,11 @@ static inline void sda_high(void){ gpio_set_level(I2C_SDA, 1); } // releases lin
 static inline void sda_low(void){ gpio_set_level(I2C_SDA, 0); }
 static inline void scl_high(void){ gpio_set_level(I2C_SCL, 1); }
 static inline void scl_low(void){ gpio_set_level(I2C_SCL, 0); }
+
+// 5 NOPs is the lowest possible delay we can have before the SSD1306 NACKs consistently
+// more NOPs safer -- especially for longer wires
+static inline void I2C_delay(void) {for (volatile int i = 0; i < 7; i++) { _NOP(); }} // standard I2C uses 4 microsecond wait times
+// static inline void I2C_delay(void) {esp_rom_delay_us(1);} // standard I2C uses 4 microsecond wait times
 
 // initialize the SDA and SCL pins of the ESP32
 void I2C_init(void) {
@@ -154,17 +161,12 @@ bool I2C_read_many(byte slave_address, byte starting_register, size_t number_of_
     return true;
 }
 
-bool find_device(byte address_of_device) {
+bool I2C_find_device(byte address_of_device) {
     I2C_start();
     bool success = transmit_address_and_RW(address_of_device, WRITE);
     I2C_stop();
     return success;
 }
-
-// 5 NOPs is the lowest possible delay we can have before the SSD1306 NACKs consistently
-// more NOPs safer -- especially for longer wires
-static inline void I2C_delay(void) {for (volatile int i = 0; i < 7; i++) { _NOP(); }} // standard I2C uses 4 microsecond wait times
-// static inline void I2C_delay(void) {esp_rom_delay_us(1);} // standard I2C uses 4 microsecond wait times
 
 static void I2C_start(void) {
     /*

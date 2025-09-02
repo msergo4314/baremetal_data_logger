@@ -15,6 +15,15 @@ static float get_temperature_centigrade(mpu6050_raw_data raw_temperature_reading
 static inline float raw_accel_to_float(mpu6050_raw_data raw_accel);
 static inline float raw_gyro_to_float(mpu6050_raw_data raw_gyro);
 
+/**
+ * @brief Reset the MPU6050 device.
+ *
+ * Sets the reset bit in PWR_MGMT_1 and stalls ~100 ms while the device reboots.
+ *
+ * @return true if the reset command was sent, false otherwise.
+ */
+static bool mpu6050_reset(void);
+
 bool mpu6050_init(MPU6050_ACCELEROMETER_RANGE accel_range, MPU6050_GYROSCOPE_RANGE gyro_range) {
     // reset the sensor first
     if (!mpu6050_reset()) return false;
@@ -74,7 +83,7 @@ bool mpu6050_read_all(mpu6050_xyz_data* accel, mpu6050_xyz_data* gyro, float* te
 }
 
 // resets all internal registers to default state
-bool mpu6050_reset(void) {
+static bool mpu6050_reset(void) {
     // set the MSB of the power register to 1
     bool status = mpu6050_write_to_register(MPU6050_PWR_MGMT_1_REG, 0x80);
     // important: wait for the reset to complete

@@ -35,6 +35,80 @@ Bit D0 (the LSB) is written at the top and D7 at the bottom
 static byte* get_bitmap_from_ascii(byte character);
 static inline bool ssd1306_write_command(byte command_code);
 static inline bool ssd1306_write_command2(byte command_code, byte command_argument);
+static bool ssd1306_set_page_address(byte page);
+static bool ssd1306_set_column_address(byte column);
+static bool ssd1306_set_column_start_and_end(byte column_start, byte column_end);
+static bool ssd1306_nop(void);
+static bool ssd1306_write_bytes(const byte* stream_of_bytes, size_t number_of_bytes, bool start, bool stop);
+static bool ssd1306_set_addressing_mode(const ADDRESSING_MODE mode);
+
+// shows what is in GDDRAM on the chip and nothing else
+static bool ssd1306_show_RAM_only(void) {
+    // A4 is the command for entire display ON with RAM contents showing
+    return ssd1306_write_command(0xA4);
+}
+
+static bool ssd1306_set_page_address(byte page) {
+    if (current_mode != PAGE) {
+        printf("Must be in PAGE mode\n");
+        return false;
+    }
+    // command for setting the page in page address mode is 0xB0. However, it is OR'd with page (0-7)
+    // the actual command thus ranges from B0 to B7
+    return ssd1306_write_command(0xB0 | page);
+}
+
+static bool ssd1306_set_column_address(byte column) {
+    if (current_mode != PAGE) {
+        printf("Must be in PAGE mode\n");
+        return false;
+    }
+    // address is sent in two bytes with each byte being one nibble (4 bits)
+    return ssd1306_write_command2(column & 0xF, ((column >> 4) | 0x10));
+}
+
+// sets column start and end for HORIZONTAL and VERTICAL modes
+static bool __attribute__((unused)) ssd1306_set_column_start_and_end(byte column_start, byte column_end) {
+    if (current_mode == PAGE) {
+        printf("cannot set column start and end in page mode!\n");
+        return false;
+    }
+    if (column_start > 127 || column_end > 127) {
+        printf("Desired columns are too large. Use values in the range of (0-127)\n");
+        return false;
+    }
+    byte transmission[4] = {SSD1306_CONTROL_BYTE(0, 0), 0x21, column_start, column_end};
+    return ssd1306_write_bytes(transmission, sizeof(transmission), true, true);
+}
+
+// wraps the I2C function for the ssd1306 display
+static bool ssd1306_write_bytes(const byte* stream_of_bytes, size_t number_of_bytes, bool start, bool stop) {
+    return I2C_send_byte_stream(SSD1306_ADDRESS, stream_of_bytes, number_of_bytes, WRITE, start, stop);
+}
+
+static bool ssd1306_set_addressing_mode(const ADDRESSING_MODE mode) {
+    byte lower_bits = 0x0;
+    // the mode we want will determine what the last two bits of the command are
+    switch(mode) {
+        case PAGE:
+        // this is considered a RESET since it's the default
+            lower_bits = (byte)0b10;
+        break;
+        case HORIZONTAL:
+            lower_bits = (byte)0b00;
+        break;
+        case VERTICAL:
+            lower_bits = (byte)0b01;
+        break;
+        default:
+            // datasheet says this is INVALID, so should never be used
+            lower_bits = (byte)0b11;
+        break;
+    }
+    // command is 0x20 for changing the addressing mode. Follow with the desired mode.
+    // The first 6 bits of the third byte are X (don't care) so here they are 0s
+    return ssd1306_write_command2(0x20, (byte)lower_bits);
+}
 
 // setup to make sure the SSD1306 is ready to use
 bool ssd1306_init(void) {
@@ -98,35 +172,6 @@ bool ssd1306_init(void) {
     return true;
 }
 
-// wraps the I2C function for the ssd1306 display
-bool ssd1306_write_bytes(const byte* stream_of_bytes, size_t number_of_bytes, bool start, bool stop) {
-    return I2C_send_byte_stream(SSD1306_ADDRESS, stream_of_bytes, number_of_bytes, WRITE, start, stop);
-}
-
-bool ssd1306_set_addressing_mode(const ADDRESSING_MODE mode) {
-    byte lower_bits = 0x0;
-    // the mode we want will determine what the last two bits of the command are
-    switch(mode) {
-        case PAGE:
-        // this is considered a RESET since it's the default
-            lower_bits = (byte)0b10;
-        break;
-        case HORIZONTAL:
-            lower_bits = (byte)0b00;
-        break;
-        case VERTICAL:
-            lower_bits = (byte)0b01;
-        break;
-        default:
-            // datasheet says this is INVALID, so should never be used
-            lower_bits = (byte)0b11;
-        break;
-    }
-    // command is 0x20 for changing the addressing mode. Follow with the desired mode.
-    // The first 6 bits of the third byte are X (don't care) so here they are 0s
-    return ssd1306_write_command2(0x20, (byte)lower_bits);
-}
-
 // sets contrast of display. Higher byte value correlates to higher contrast
 bool ssd1306_set_contrast(byte contrast) {
     // to set contrast we will transmit two bytes -- the command byte which indicates we want to change the contrast, and the value itself (data byte)
@@ -149,7 +194,7 @@ bool ssd1306_normal_display(void) {
 }
 
 // could be useful if you want to waste time
-bool ssd1306_nop(void) {
+bool __attribute__((unused)) ssd1306_nop(void) {
     return ssd1306_write_command(0xE3);
 }
 
@@ -180,46 +225,6 @@ bool ssd1306_refresh_display(void) {
     }
     return ssd1306_show_RAM_only();
 }
-
-// shows what is in GDDRAM on the chip and nothing else
-bool ssd1306_show_RAM_only(void) {
-    // A4 is the command for entire display ON with RAM contents showing
-    return ssd1306_write_command(0xA4);
-}
-
-bool ssd1306_set_page_address(byte page) {
-    if (current_mode != PAGE) {
-        printf("Must be in PAGE mode\n");
-        return false;
-    }
-    // command for setting the page in page address mode is 0xB0. However, it is OR'd with page (0-7)
-    // the actual command thus ranges from B0 to B7
-    return ssd1306_write_command(0xB0 | page);
-}
-
-bool ssd1306_set_column_address(byte column) {
-    if (current_mode != PAGE) {
-        printf("Must be in PAGE mode\n");
-        return false;
-    }
-    // address is sent in two bytes with each byte being one nibble (4 bits)
-    return ssd1306_write_command2(column & 0xF, ((column >> 4) | 0x10));
-}
-
-// sets column start and end for HORIZONTAL and VERTICAL modes
-bool ssd1306_set_column_start_and_end(byte column_start, byte column_end) {
-    if (current_mode == PAGE) {
-        printf("cannot set column start and end in page mode!\n");
-        return false;
-    }
-    if (column_start > 127 || column_end > 127) {
-        printf("Desired columns are too large. Use values in the range of (0-127)\n");
-        return false;
-    }
-    byte transmission[4] = {SSD1306_CONTROL_BYTE(0, 0), 0x21, column_start, column_end};
-    return ssd1306_write_bytes(transmission, sizeof(transmission), true, true);
-}
-
 // clears screen by setting GDDRAM to 0 and calling ssd1306_refresh_display()
 bool ssd1306_clear_screen(void) {
     // to clear, write all 0s into RAM buffer, then write the whole buffer
@@ -359,7 +364,7 @@ bool ssd1306_set_pixel(ssd1306_pixel_coordinate pixel_coords, ON_OFF on_or_off, 
     byte column = pixel_coords.x; // 0-127
     byte page = pixel_coords.y / 8; // 0-7
 
-    if (!verify_coordinates_are_valid(pixel_coords)) {
+    if (!ssd1306_verify_coordinates_are_valid(pixel_coords)) {
         printf("Error: cannot draw a pixel that does not fit on the display. Passed in point (%d, %d)\n", (int)column, (int)pixel_coords.y);
         return false;
     }
@@ -393,7 +398,7 @@ bool ssd1306_set_pixel(ssd1306_pixel_coordinate pixel_coords, ON_OFF on_or_off, 
 
 // draws a line 1 pixel wide
 bool ssd1306_draw_line(ssd1306_pixel_coordinate p1, ssd1306_pixel_coordinate p2, bool flush) {
-    if (!verify_coordinates_are_valid(p1) || !verify_coordinates_are_valid(p2)) {
+    if (!ssd1306_verify_coordinates_are_valid(p1) || !ssd1306_verify_coordinates_are_valid(p2)) {
         printf("Invalid coordinates to draw line\n");
         return false;
     }
@@ -438,8 +443,8 @@ bool ssd1306reset_page(byte page) {
 // Horizontal line of width 1 pixel
 bool ssd1306_draw_hline(byte y, byte x1, byte x2, bool flush) {
     // Ensure coordinates are valid
-    if (!verify_coordinates_are_valid((ssd1306_pixel_coordinate){.x = x1, .y = y}) ||
-        !verify_coordinates_are_valid((ssd1306_pixel_coordinate){.x = x2, .y = y})) {
+    if (!ssd1306_verify_coordinates_are_valid((ssd1306_pixel_coordinate){.x = x1, .y = y}) ||
+        !ssd1306_verify_coordinates_are_valid((ssd1306_pixel_coordinate){.x = x2, .y = y})) {
         printf("invalid coordinates given in ssd1306_draw_hline()\n");
         return false;
     }
@@ -459,8 +464,8 @@ bool ssd1306_draw_hline(byte y, byte x1, byte x2, bool flush) {
 
 // vertical line of width 1 pixel
 bool ssd1306_draw_vline(byte x, byte y1, byte y2, bool flush) {
-    if (!verify_coordinates_are_valid((ssd1306_pixel_coordinate){.x = x, .y = y1}) || 
-        !verify_coordinates_are_valid((ssd1306_pixel_coordinate){.x = x, .y = y2})) {
+    if (!ssd1306_verify_coordinates_are_valid((ssd1306_pixel_coordinate){.x = x, .y = y1}) || 
+        !ssd1306_verify_coordinates_are_valid((ssd1306_pixel_coordinate){.x = x, .y = y2})) {
         printf("invalid coordinates given in ssd1306_draw_vline()\n");
         return false;
     }
@@ -513,7 +518,7 @@ bool ssd1306_refresh_page(byte page_to_refresh) {
     return true;
 }
 
-bool verify_coordinates_are_valid(ssd1306_pixel_coordinate coordinate) {
+bool ssd_1306_verify_coordinates_are_valid(ssd1306_pixel_coordinate coordinate) {
     if (coordinate.x >= SSD1306_OLED_WIDTH || coordinate.y >= SSD1306_OLED_HEIGHT) {
         return false;
     }

@@ -64,29 +64,21 @@ typedef struct pixel_coord {
 } ssd1306_pixel_coordinate;
 
 // Function prototypes
-
-bool ssd1306_write_bytes(const byte* stream_of_bytes, size_t number_of_bytes, bool start, bool stop);
-bool ssd1306_set_addressing_mode(const ADDRESSING_MODE mode);
 bool ssd1306_init(void);
 bool ssd1306_set_contrast(byte contrast);
 bool ssd1306_entire_display_on(void);
 bool ssd1306_invert_display(void);
 bool ssd1306_normal_display(void);
-bool ssd1306_nop(void);
 bool ssd1306_display_on(void);
 bool ssd1306_display_off(void);
 bool ssd1306_refresh_display(void);
-bool ssd1306_set_page_address(byte page);
-bool ssd1306_set_column_address(byte column);
-bool ssd1306_set_column_start_and_end(byte column_start, byte column_end);
 bool ssd1306_clear_screen(void);
 bool ssd1306_write_string_size8x8p(const char* string_to_print, byte x_offset_pixels_left,
                                    byte x_offset_pixels_right, byte start_page);
-bool ssd1306_show_RAM_only(void);
 bool ssd1306_refresh_page(byte page_to_refresh);
 bool ssd1306_set_pixel(ssd1306_pixel_coordinate pixel_coords, ON_OFF on_or_off, bool flush);
 bool ssd1306_set_pixel_xy(byte x, byte y, ON_OFF on_or_off, bool flush);
-bool verify_coordinates_are_valid(ssd1306_pixel_coordinate coordinate);
+bool ssd1306_verify_coordinates_are_valid(ssd1306_pixel_coordinate coordinate);
 bool ssd1306_draw_line(ssd1306_pixel_coordinate p1, ssd1306_pixel_coordinate p2, bool flush);
 bool ssd1306_draw_hline(byte x, byte y1, byte y2, bool flush);
 bool ssd1306_draw_vline(byte y, byte x1, byte x2, bool flush);

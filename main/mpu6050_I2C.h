@@ -111,15 +111,6 @@ bool mpu6050_set_gyro_range(MPU6050_GYROSCOPE_RANGE gyro_range);
 bool mpu6050_set_accel_range(MPU6050_ACCELEROMETER_RANGE accel_range);
 
 /**
- * @brief Reset the MPU6050 device.
- *
- * Sets the reset bit in PWR_MGMT_1 and stalls ~100 ms while the device reboots.
- *
- * @return true if the reset command was sent, false otherwise.
- */
-bool mpu6050_reset(void);
-
-/**
  * @brief Read acceleration, gyroscope, and temperature data in one I2C transaction.
  *
  * Reads 14 consecutive bytes (Accel XYZ, Temperature, Gyro XYZ) starting at
