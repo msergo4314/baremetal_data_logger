@@ -1,6 +1,9 @@
 #ifndef MY_SPI_H
 #define MY_SPI_H
 #include "driver/gpio.h"
+#include "esp_rtc_time.h" // to estimate frequency
+#include "soc/gpio_struct.h"
+#include "soc/gpio_reg.h"
 
 #define SPI_MAX_ATTACHED_DEVICES 8
 
@@ -28,22 +31,24 @@ typedef enum {
 // stores the functions a SPI slave device will require to work
 typedef struct {
     gpio_num_t cs_pin;
-    void (*idle_clock)(void);
-    void (*capture_data)(void);
-    void (*shift_data)(void);
-    void (*cs_assert)(gpio_num_t);
-    void (*cs_idle)(gpio_num_t);
-    void (*mosi_idle)(void);
+    SPI_MODE mode;
 } SPI_device_t;
 
+// NOTE: CS must be in range 0-31
+inline void SPI_cs_low(gpio_num_t CS) {GPIO.out_w1tc = 1U << CS;}
+inline void SPI_cs_high(gpio_num_t CS) {GPIO.out_w1ts = 1U << CS;}
 
 bool SPI_init(void);
 // attatch a SPI device to utilize SPI functions
-SPI_device_t* SPI_attach_device(gpio_num_t cs, SPI_MODE mode, SPI_CS_ACTIVE idle);
-void SPI_transfer_block(gpio_num_t cs, const byte* tx_buffer, byte* rx_buffer, size_t number_of_bytes);
-void SPI_transmit_to_slave(gpio_num_t cs, const byte* bytes_to_send, size_t number_of_bytes);
-void SPI_receive_from_slave(gpio_num_t cs, byte* read_data, size_t number_of_bytes);
-void SPI_clock_toggle(gpio_num_t cs, size_t num_cycles);
-void SPI_set_slow_mode(bool enable_slow_mode);
+void SPI_attach_device(gpio_num_t cs, SPI_MODE mode);
+void SPI_transfer_block(const byte* tx_buffer, byte* rx_buffer, size_t number_of_bytes, SPI_MODE mode);
+void SPI_transmit_to_slave(const byte* tx_buffer, size_t number_of_bytes, SPI_MODE mode);
+void SPI_receive_from_slave(byte* rx_buffer, size_t number_of_bytes, SPI_MODE mode);
 void SPI_set_mosi(bool mosi_logic_level);
+bool SPI_wait_for_value(byte target_value, byte dummy_value, size_t max_iterations, SPI_MODE mode);
+// return (estimated) clock speed in Hz by sending 1000 bytes
+size_t SPI_get_clock_speed_Hz(void);
+size_t SPI_get_max_frequency(void);
+byte SPI_transfer_byte(byte data, SPI_MODE mode);
+void SPI_set_frequency(uint16_t desired_frequency_kHz);
 #endif

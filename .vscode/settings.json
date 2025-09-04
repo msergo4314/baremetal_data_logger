@@ -30,7 +30,9 @@
     "ssd1306_i2c.h": "c",
     "mpu6050_i2c.h": "c",
     "my_i2c.h": "c",
-    "my_spi.h": "c"
+    "my_spi.h": "c",
+    "xtensa_timer.h": "c",
+    "*.inc": "c"
   },
   "idf.flashType": "UART"
 }

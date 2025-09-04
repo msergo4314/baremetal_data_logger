@@ -116,6 +116,7 @@ bool ssd1306_init(void) {
     Here we set a bunch of parameters to recommended values
     This is necessary to make sure we can boot the display into a known state (all parameters defined) on system reset
     */
+   I2C_init();
 
     // Always reset the display into a known state
     if (!ssd1306_display_off()) return false; // Display OFF

@@ -1,5 +1,4 @@
 #include "mpu6050_I2C.h"
-#include "esp_rom_sys.h"
 
 // trackers for settings that would otherwise have to be read from registers (slow)
 MPU6050_GYROSCOPE_RANGE current_gyro_range;
@@ -25,6 +24,7 @@ static inline float raw_gyro_to_float(mpu6050_raw_data raw_gyro);
 static bool mpu6050_reset(void);
 
 bool mpu6050_init(MPU6050_ACCELEROMETER_RANGE accel_range, MPU6050_GYROSCOPE_RANGE gyro_range) {
+    I2C_init();
     // reset the sensor first
     if (!mpu6050_reset()) return false;
     if (!mpu6050_set_accel_range(accel_range)) return false;

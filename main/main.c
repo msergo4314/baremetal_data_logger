@@ -9,9 +9,10 @@
 #include "esp_rtc_time.h"
 
 // custom libraries
-#include "my_SPI.h"
+// #include "my_SPI.h"
 #include "ssd1306_I2C.h"
 #include "mpu6050_I2C.h"
+#include "SD_card_SPI.h"
 
 void app_main(void)
 {
@@ -22,23 +23,45 @@ void app_main(void)
     // temp_read = gpio_get_level(SPI_CLK);
     // printf("expecting 1, read: %d\n", temp_read);
 
-    I2C_init();
-    printf("Looking for OLED: %d\n", (int)I2C_find_device(SSD1306_ADDRESS));
-    printf("Looking for MPU: %d\n", (int)I2C_find_device(MPU6050_ADDRESS));
+    if (!SD_card_init(5)) {
+        printf("Could not init SD card\n");
+        return;
+    } else {
+        printf("SD card init successful\n");
+    }
     printf("OLED init success: %d\n", (int)ssd1306_init()); // could catch the value for checks
-    printf("MPU init success: %d\n", (int)mpu6050_init(MPU6050_RANGE_2_G, MPU6050_RANGE_250_DEG)); // could catch the value for checks
-
+    printf("MPU init success: %d\n", (int)mpu6050_init(MPU6050_RANGE_8_G, MPU6050_RANGE_1000_DEG)); // could catch the value for checks
+    // printf("Looking for OLED: %d\n", (int)I2C_find_device(SSD1306_ADDRESS));
+    // printf("Looking for MPU: %d\n", (int)I2C_find_device(MPU6050_ADDRESS));
+    
     int64_t start = esp_rtc_get_time_us(); // returns time in microseconds 
     ssd1306_refresh_display();
     int64_t end = esp_rtc_get_time_us();
     int64_t elapsed = end - start;
     float bits = 9288.0; // estimate
+
+    printf("reading block 0\n");
+    byte* block_data = malloc(512);
+    if (block_data == NULL) {
+        printf("block data storage buffer could not malloc\n");
+        return;
+    }
+    if (!SD_read_block(0, block_data)) {
+        printf("Read of block 0 failed\n");
+        free(block_data);
+        return;
+    }
+    printf("Read of block 0:\n");
+    for (int i = 0; i < 512; i++) {
+        printf("%x ", block_data[i]);
+    }
     printf("Elapsed time transmitting %.0f bits with I2C bus: %lld us (%.3f sec)\n", bits, elapsed, (elapsed) / 1e6);
     printf("Estimated I2C speed: %.4lf bits/sec\n", bits / (elapsed / 1e6));
 
     mpu6050_xyz_data acceleration, gyro;
     float temperature;
     char disp_str[100] = "";
+    free(block_data);
     while (1) {
         if (!mpu6050_read_all(&acceleration, &gyro, &temperature)) {
             printf("MPU ERROR\n");

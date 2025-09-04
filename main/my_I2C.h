@@ -24,6 +24,8 @@ bool I2C_send_byte_stream(byte slave_address, const byte *stream_of_bytes,
                           bool start_transmission, bool end_transmission);
 bool I2C_read_one(byte slave_address, byte register_to_read, byte* value);
 bool I2C_read_many(byte slave_address, byte starting_register, size_t number_of_bytes_to_read, byte* read_bytes);
+
+// make sure init has been called already for this to work
 bool I2C_find_device(byte address_of_device);
 
 #endif // MY_I2C_H

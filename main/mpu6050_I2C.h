@@ -2,6 +2,7 @@
 #define mpu6050_H
 
 #include "my_I2C.h"
+#include "esp_rom_sys.h"
 #define MPU6050_ADDRESS 0x68 // I2C address for the MPU6050
 
 /*
