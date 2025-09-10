@@ -32,8 +32,6 @@ This means that even if we were only writing to the slave device, we still recei
 
 // used to slow down SPI speeds when required by drivers
 static inline void SPI_half_cycle_delay(void) {for(size_t i = 0; i < half_cyle_NOP_delay_global; i++) {_NOP();}}
-// single NOP if needed
-static inline void SPI_NOP(void) {_NOP();}
 
 // static byte SPI_transfer_byte(const byte data_out, void (*capture_data)(void), void (*shift_data)(void));
 
@@ -54,6 +52,7 @@ void SPI_attach_device(gpio_num_t cs, SPI_MODE mode) {
     }
     SPI_device_t* dev = &devices[device_count++];
     dev->cs_pin = cs;
+    dev->mode = mode;
     return;
 }
 

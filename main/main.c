@@ -39,24 +39,55 @@ void app_main(void)
     int64_t end = esp_rtc_get_time_us();
     int64_t elapsed = end - start;
     float bits = 9288.0; // estimate
+    printf("Elapsed time transmitting %.0f bits with I2C bus: %lld us (%.3f sec)\n", bits, elapsed, (elapsed) / 1e6);
+    printf("Estimated I2C speed: %.4lf bits/sec\n", bits / (elapsed / 1e6));
 
-    printf("reading block 0\n");
     byte* block_data = malloc(512);
     if (block_data == NULL) {
         printf("block data storage buffer could not malloc\n");
         return;
     }
-    if (!SD_read_block(0, block_data)) {
-        printf("Read of block 0 failed\n");
+    start = esp_rtc_get_time_us();
+    int block_to_read = 500000;
+    if (!SD_read_block(block_to_read, block_data)) {
+        printf("Read of block %d failed\n", block_to_read);
         free(block_data);
         return;
     }
-    printf("Read of block 0:\n");
+    end = esp_rtc_get_time_us();
+    elapsed = end - start;
+    printf("Read took %.4f ms\n", elapsed / 1000.0);
+
+    printf("Read of block %d:\n", block_to_read);
     for (int i = 0; i < 512; i++) {
         printf("%x ", block_data[i]);
     }
-    printf("Elapsed time transmitting %.0f bits with I2C bus: %lld us (%.3f sec)\n", bits, elapsed, (elapsed) / 1e6);
-    printf("Estimated I2C speed: %.4lf bits/sec\n", bits / (elapsed / 1e6));
+    printf("\n");
+
+
+    printf("reading 10 blocks\n");
+    block_data = realloc(block_data, 512 * 10);
+    if (block_data == NULL) {
+        printf("block data storage buffer could not malloc\n");
+        return;
+    }
+    start = esp_rtc_get_time_us();
+    if (!SD_read_many_blocks(block_to_read, block_data, 10)) {
+        printf("10 block read of block %d failed\n", block_to_read);
+        free(block_data);
+        return;
+    }
+    end = esp_rtc_get_time_us();
+    elapsed = end - start;
+    printf("Read took %.4f ms\n", elapsed / 1000.0);
+
+    for (int i = 0; i < 10; i++) {
+        printf("Read of block %d:\n", block_to_read + i);
+        for (int j = 0; j < 512; j++) {
+            printf("%x ", block_data[512 * i + j]);
+        }
+        printf("\n");
+    }
 
     mpu6050_xyz_data acceleration, gyro;
     float temperature;
@@ -64,7 +95,7 @@ void app_main(void)
     free(block_data);
     while (1) {
         if (!mpu6050_read_all(&acceleration, &gyro, &temperature)) {
-            printf("MPU ERROR\n");
+            printf("MPU read_all() error\n");
             return;
         }
         snprintf(disp_str, sizeof(disp_str), "Temp: %02.1f C",temperature);

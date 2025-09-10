@@ -11,4 +11,5 @@ Uses SPI mode 0 or 3 (0 is easier)
 
 bool SD_card_init(gpio_num_t SD_card_chip_select);
 bool SD_read_block(uint32_t block_num, byte* block_data);
+bool SD_read_many_blocks(uint32_t block_num, byte* block_data, size_t num_blocks);
 #endif /* SD_CARD_SPI_H */

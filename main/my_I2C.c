@@ -43,7 +43,7 @@ static inline void scl_low(void){ gpio_set_level(I2C_SCL, 0); }
 
 // 5 NOPs is the lowest possible delay we can have before the SSD1306 NACKs consistently
 // more NOPs safer -- especially for longer wires
-static inline void I2C_delay(void) {for (volatile int i = 0; i < 7; i++) { _NOP(); }} // standard I2C uses 4 microsecond wait times
+static inline void I2C_delay(void) {for (volatile int i = 0; i < 7; i++) { _NOP(); }}
 // static inline void I2C_delay(void) {esp_rom_delay_us(1);} // standard I2C uses 4 microsecond wait times
 
 // initialize the SDA and SCL pins of the ESP32
@@ -176,9 +176,8 @@ static void I2C_start(void) {
     scl_high();
     // give the lines time to fully rise to 3.3V (1 us works in testing)
     esp_rom_delay_us(1);
-    // I2C_delay();
 
-    sda_low(); //I2C_delay();
+    sda_low();
 
     // setting SCL low is not part of the start but is necessary for the subsequent data transmissions
     scl_low();
@@ -192,7 +191,6 @@ static void I2C_stop(void) {
     */
     sda_low(); //I2C_delay();
     scl_high(); //I2C_delay();
-    // esp_rom_delay_us(1);
     sda_high(); 
     
     // the bus should be free for a small period before we can START again

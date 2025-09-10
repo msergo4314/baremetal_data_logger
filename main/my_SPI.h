@@ -22,13 +22,6 @@ typedef enum mode {
     MODE_3 = 0b11,
 } SPI_MODE;
 
-// if the chip select for a device is LOW or HIGH when idle
-typedef enum {
-    CS_ACTIVE_LOW,
-    CS_ACTIVE_HIGH
-} SPI_CS_ACTIVE;
-
-// stores the functions a SPI slave device will require to work
 typedef struct {
     gpio_num_t cs_pin;
     SPI_MODE mode;
@@ -36,6 +29,7 @@ typedef struct {
 
 // NOTE: CS must be in range 0-31
 inline void SPI_cs_low(gpio_num_t CS) {GPIO.out_w1tc = 1U << CS;}
+// NOTE: CS must be in range 0-31
 inline void SPI_cs_high(gpio_num_t CS) {GPIO.out_w1ts = 1U << CS;}
 
 bool SPI_init(void);
