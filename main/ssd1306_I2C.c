@@ -21,7 +21,7 @@ Each control or data byte will have an ACK bit
 
 GDDRAM
 a bit mapped static RAM which holds the bit pattern to be displayed. Thd size of the RAM is 128x64 bits (the size of the screen)
-the RAM is didvided into 8 pages from PAGE0 to PAGE7
+the RAM is didvided into 8 pages from PAGE0 (top) to PAGE7 (bottom)
 
 the coordinate (0, 0) is located at the top left of the screen (assuming no column/row remapping). this is page 0, column 0
 Each page has a height of 8 pixels from top to bottom (8x8 = 64) and a width of 128 segments (indexed 0-127 from left to right assuming no remaps)
@@ -35,11 +35,11 @@ Bit D0 (the LSB) is written at the top and D7 at the bottom
 static byte* get_bitmap_from_ascii(byte character);
 static inline bool ssd1306_write_command(byte command_code);
 static inline bool ssd1306_write_command2(byte command_code, byte command_argument);
+static inline bool ssd1306_write_bytes(const byte* stream_of_bytes, size_t number_of_bytes, bool start, bool stop);
 static bool ssd1306_set_page_address(byte page);
 static bool ssd1306_set_column_address(byte column);
 static bool ssd1306_set_column_start_and_end(byte column_start, byte column_end);
 static bool ssd1306_nop(void);
-static bool ssd1306_write_bytes(const byte* stream_of_bytes, size_t number_of_bytes, bool start, bool stop);
 static bool ssd1306_set_addressing_mode(const ADDRESSING_MODE mode);
 
 // shows what is in GDDRAM on the chip and nothing else
@@ -82,7 +82,7 @@ static bool __attribute__((unused)) ssd1306_set_column_start_and_end(byte column
 }
 
 // wraps the I2C function for the ssd1306 display
-static bool ssd1306_write_bytes(const byte* stream_of_bytes, size_t number_of_bytes, bool start, bool stop) {
+static inline bool ssd1306_write_bytes(const byte* stream_of_bytes, size_t number_of_bytes, bool start, bool stop) {
     return I2C_send_byte_stream(SSD1306_ADDRESS, stream_of_bytes, number_of_bytes, WRITE, start, stop);
 }
 
@@ -220,7 +220,7 @@ bool ssd1306_refresh_display(void) {
         ssd1306_set_page_address(page);
         ssd1306_set_column_address(0);
         byte buffer[129];
-        buffer[0] =SSD1306_CONTROL_BYTE(0, 1);
+        buffer[0] = SSD1306_CONTROL_BYTE(0, 1);
         memcpy(&buffer[1], &(ssd1306GDDRAM_buffer[page][0]), SSD1306_OLED_WIDTH);
         if (!ssd1306_write_bytes(buffer, sizeof(buffer), true, true)) return false;
     }

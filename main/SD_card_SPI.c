@@ -17,6 +17,7 @@ additional information may be provided. Next, there are 7 bits containing a Cycl
 
 // SD protocol specifies MOSI is high when not transmitting 
 #define SD_MOSI_IDLE_BITS 0xFF
+#define SD_RESPONSE_TIMEOUT 8 // max number of bytes to wait before the SD card sends a response
 
 // masks for R1 response error bits
 #define R1_RESPONSE_IDLE_ERROR              1U
@@ -41,22 +42,27 @@ additional information may be provided. Next, there are 7 bits containing a Cycl
 // Returns the first byte of the response
 
 static byte SD_send_command_r1(byte cmd, const byte *args, bool done);
+static uint16_t SD_send_command_r2(byte cmd, const byte *args, bool done);
 static bool SD_send_command_r3(byte cmd, const byte *args, byte response[5], bool done);
 static bool SD_send_command_r7(byte cmd, const byte *args, byte response[5], bool done);
 static void build_sd_command(byte cmd, const byte *args, byte *out_cmd);
 // static byte create_CRC7(const byte* bytes_before_crc);
 
-static void print_response(const byte* response, size_t length);
-static void print_r1_response_flags(byte r1);
 static bool verify_voltage_and_version(gpio_num_t SD_card_chip_select);
 static uint32_t get_CSD_slice(const uint8_t* csd, byte upper_index, byte lower_index);
-static uint32_t SD_get_number_of_512_byte_blocks(void);
 
 typedef enum {
     SDSC_TYPE, // SDSC
     SDHC_SDXC_TYPE, //SDHC/ SDXC
     UNKNOWN_TYPE
 } SD_CARD_TYPE;
+
+// data response tokens for write commands (CMD 24 and 25)
+typedef enum {
+    DATA_ACCEPTED = 0b010,
+    DATA_REJECTED_DUE_TO_CRC_ERROR = 0b101,
+    DATA_REJECTED_DUE_TO_WRITE_ERROR = 0b110
+} DATA_RESPONSE_TOKEN_TYPE;
 
 static SD_CARD_TYPE SD_card_type_global = UNKNOWN_TYPE;
 static gpio_num_t SD_CS_global = GPIO_NUM_NC; // chip select for SD card
@@ -163,11 +169,11 @@ static void build_sd_command(byte cmd, const byte *args, byte *out_cmd) {
 }
 
 /**
- * Sends an SD card command and waits up to 16 bytes for an R1 response.
+ * Sends an SD card command and waits up to SD_RESPONSE_TIMEOUT bytes for an R1 response.
  * @param cs          Chip select GPIO for SD card.
  * @param cmd         Command index (0–63).
  * @param args        Pointer to 4-byte argument array (or NULL for zeros).
- * @return            First non-0xFF response byte, or 0xFF if timeout.
+ * @return            First byte with the MSB = 0, or 0xFF if timeout.
  */
 static byte SD_send_command_r1(byte cmd, const byte *args, bool done) {
     byte cmd_to_send[6];
@@ -181,7 +187,7 @@ static byte SD_send_command_r1(byte cmd, const byte *args, bool done) {
     int attempts = 0;
     do {
         r1 = SPI_transfer_byte(SD_MOSI_IDLE_BITS, MODE_0);
-        if (++attempts > 8) {
+        if (++attempts > SD_RESPONSE_TIMEOUT) {
             printf("Timeout waiting for R1b response\n");
             SPI_cs_high(SD_CS_global);
             return 0xFF;
@@ -189,6 +195,31 @@ static byte SD_send_command_r1(byte cmd, const byte *args, bool done) {
     } while (r1 & 0x80);
     if (done) SPI_cs_high(SD_CS_global);
     return r1;
+}
+
+// similar to R1 response but receives two bytes instead of just one
+static uint16_t SD_send_command_r2(byte cmd, const byte *args, bool done) {
+    byte cmd_to_send[6];
+    build_sd_command(cmd, args, cmd_to_send);
+
+    SPI_cs_low(SD_CS_global);
+    SPI_transmit_to_slave(cmd_to_send, sizeof(cmd_to_send), MODE_0);
+
+    // Poll until we get a valid R1 (MSB = 0)
+    byte r1 = 0xFF;
+    int attempts = 0;
+    do {
+        r1 = SPI_transfer_byte(SD_MOSI_IDLE_BITS, MODE_0);
+        if (++attempts > SD_RESPONSE_TIMEOUT) {
+            printf("Timeout waiting for R1b response\n");
+            SPI_cs_high(SD_CS_global);
+            return 0xFF;
+        }
+    } while (r1 & 0x80);
+    // read one more byte after the R1
+    uint16_t response =  (uint16_t)(r1 << 4) & SPI_transfer_byte(SD_MOSI_IDLE_BITS, MODE_0);
+    if (done) SPI_cs_high(SD_CS_global);
+    return response;
 }
 
 static byte SD_send_command_r1b(byte cmd, const byte* args) {
@@ -233,7 +264,7 @@ Used only for command 58
 static bool SD_send_command_r3(byte cmd, const byte *args, byte response[5], bool done) {
     SPI_set_mosi(1);
 
-    byte tx[6 + 16 + 5];   // cmd + polling + payload
+    byte tx[6 + SD_RESPONSE_TIMEOUT + 5];   // cmd + polling + payload
     byte rx[sizeof(tx)];
 
     build_sd_command(cmd, args, tx);
@@ -249,7 +280,7 @@ static bool SD_send_command_r3(byte cmd, const byte *args, byte response[5], boo
 
     // Find R1 (first non-0xFF after cmd echo)
     int start = 6;
-    while (start < sizeof(rx) - 5 && rx[start] == 0xFF) {
+    while (start < sizeof(rx) - 5 && rx[start] & 0x80) {
         start++;
     }
     if (start >= sizeof(rx) - 5) {
@@ -271,22 +302,6 @@ static bool SD_send_command_r7(byte cmd, const byte *args, byte response[5], boo
     return SD_send_command_r3(cmd, args, response, done);
 }
 
-static void print_response(const byte* response, size_t length) {
-    for (size_t i = 0; i < length; i++) {
-        printf("byte %d: %x\n", i, response[i]);
-    }
-}
-
-static void print_r1_response_flags(byte r1) {
-    if (r1 | R1_RESPONSE_IDLE_ERROR) {printf("IDLE\n");}
-    if (r1 | R1_RESPONSE_ERASE_RESET_ERROR) {printf("ERASE RESET\n");}
-    if (r1 | R1_RESPONSE_ILLEGAL_COMMAND_ERROR) {printf("ILLEGAL COMMAND\n");}
-    if (r1 | R1_RESPONSE_COMMAND_CRC_ERROR) {printf("COMMAND CRC ERROR\n");}
-    if (r1 | R1_RESPONSE_ERASE_SEQUENCE_ERROR) {printf("ERASE SEQUENCE ERROR\n");}
-    if (r1 | R1_RESPONSE_ADDRESS_ERROR) {printf("ADDRESS ERROR\n");}
-    if (r1 | R1_RESPONSE_PARAMETER_ERROR) {printf("PARAMETER ERROR\n");}
-}
-
 /*
 check the voltage and SD version (should be 2.0+) by sending CMD8
 assumes SPI is set up correctly (100-400 KHz)
@@ -306,7 +321,7 @@ static bool verify_voltage_and_version(gpio_num_t SD_card_chip_select) {
 
 // reads a block of size 512 bytes. Assumes the address given is valid
 bool SD_read_block(uint32_t block_num, byte* block_data) {
-    if (block_num + 1 > SD_number_of_blocks_global) {
+    if (block_num >= SD_number_of_blocks_global) {
         printf("Requested block outside of allowed range. Cannot read\n");
         return false;
     }
@@ -375,6 +390,7 @@ bool SD_read_block(uint32_t block_num, byte* block_data) {
 
 /*
 Reads num_blocks blocks of 512 bytes each including the starting block. Stores results in block_data
+Strongly reccommended to not read more than ~32 blocks at a time due to stack limitations
 */
 bool SD_read_many_blocks(uint32_t starting_block_num, byte* block_data, size_t num_blocks) {
     if (num_blocks == 0) {
@@ -400,6 +416,7 @@ bool SD_read_many_blocks(uint32_t starting_block_num, byte* block_data, size_t n
     // CMD18 to read multiple blocks
     if (SD_send_command_r1(18, args, false) != 0x0) {
         printf("CMD18 did not return the correct R1 response\n");
+        SPI_cs_high(SD_CS_global);
         return false;
     }
 
@@ -411,7 +428,7 @@ bool SD_read_many_blocks(uint32_t starting_block_num, byte* block_data, size_t n
         byte token;
         do {
             token = SPI_transfer_byte(SD_MOSI_IDLE_BITS, MODE_0);
-            if (++attempts > 10000) {
+            if (++attempts > (int)1e5) {
                 SPI_cs_high(SD_CS_global);
                 printf("Timeout waiting for data token\n");
                 return false;
@@ -439,31 +456,14 @@ bool SD_read_many_blocks(uint32_t starting_block_num, byte* block_data, size_t n
 
 // helper to send CMD9 and read 16-byte CSD (card specific data)
 bool SD_read_CSD(byte* csd) {
-    byte cmd_to_send[6];
-    build_sd_command(9, NULL, cmd_to_send);
-    SPI_set_mosi(true);
-    SPI_cs_low(SD_CS_global);
 
-    // ignore the first 6 bytes since this is when we transmit the CMD
-    SPI_transmit_to_slave(cmd_to_send, sizeof(cmd_to_send), MODE_0);
-    byte r1 = 0xFF;
-    int count = 0;
-    // R1 will come at least one byte later
-    do {
-        r1 = SPI_transfer_byte(SD_MOSI_IDLE_BITS, MODE_0);
-        if (++count == (int)1e5) {
-            printf("Timed out waiting for R1 response\n");
-            SPI_cs_high(SD_CS_global);
-            return false;
-        }
-    } while (r1 == 0xFF);
-    if (r1 != 0x0) {
+    if (SD_send_command_r1(9, NULL, false) != 0x0) {
         printf("R1 is incorrect\n");
         SPI_cs_high(SD_CS_global);
         return false;
     }
     // wait for data token 0xFE
-    count = 0;
+    int count = 0;
     byte token = 0xFF;
     do {
         token = SPI_transfer_byte(SD_MOSI_IDLE_BITS, MODE_0);
@@ -476,13 +476,12 @@ bool SD_read_CSD(byte* csd) {
     } while (1);
 
     for (int i = 0; i < 16; i++) {
-        csd[i] = SPI_transfer_byte(0xFF, MODE_0);
-        // printf("CSD byte %d: %2x\n", i, csd[i]);
+        csd[i] = SPI_transfer_byte(SD_MOSI_IDLE_BITS, MODE_0);
     }
 
     // 2 CRC bytes
-    SPI_transfer_byte(0xFF, MODE_0);
-    SPI_transfer_byte(0xFF, MODE_0);
+    SPI_transfer_byte(SD_MOSI_IDLE_BITS, MODE_0);
+    SPI_transfer_byte(SD_MOSI_IDLE_BITS, MODE_0);
 
     SPI_cs_high(SD_CS_global);
     return true;
@@ -496,7 +495,7 @@ uint32_t SD_get_block_count(byte* csd) {
     uint32_t block_length;
 
     if (SD_card_type_global == SDSC_TYPE) {
-        // untested code 
+        // untested code. Consult the SD physical layer specs
         C_SIZE = (uint16_t)get_CSD_slice(csd, 73, 62);
         C_SIZE_MULT = (byte)get_CSD_slice(csd, 49, 47);
         READ_BL_LEN = (byte)get_CSD_slice(csd, 83, 80);
@@ -520,8 +519,7 @@ uint32_t SD_get_block_count(byte* csd) {
         return (number_of_blocks * block_length) / 512; // total size / 512
     } else {
         C_SIZE = get_CSD_slice(csd, 69, 48);
-        // printf("C size is: %d\n", C_SIZE);
-        return (C_SIZE + 1) * 1024; // multiply by 512 for total capacity in bytes
+        return (C_SIZE + 1) * 1000; // multiply by 512 for total capacity in bytes
     }
 }
 
@@ -543,7 +541,7 @@ static uint32_t get_CSD_slice(const uint8_t* csd, byte upper_index, byte lower_i
     return result;
 }
 
-static uint32_t SD_get_number_of_512_byte_blocks(void) {
+uint32_t SD_get_number_of_512_byte_blocks(void) {
     byte csd[16];
     if (!SD_read_CSD(csd))  {
         printf("Could not read CSD\n");
@@ -553,19 +551,198 @@ static uint32_t SD_get_number_of_512_byte_blocks(void) {
     // printf("Total 512-byte blocks: %.4e\n", (double)blocks);
 }
 
-static bool block_is_empty(uint32_t block_num) {
-    byte csd[16];
-    if (!SD_read_CSD(csd)) return false;
-    if (block_num >= SD_get_block_count(csd)) {
-        printf("block number is too large");
-        return false;
-    }
+bool SD_is_block_empty(uint32_t block_num) {
     byte block_data[512];
     if (!SD_read_block(block_num, block_data)) return false;
     for (int i = 0; i < 512; i++) {
         if (block_data[i] != 0x0) {
             return false;
         }
+    }
+    return true;
+}
+
+// writes 512 bytes to a single block at the address block_num
+bool SD_write_block(uint32_t block_num, const byte* data_to_write) {
+    if (block_num >= SD_number_of_blocks_global) {
+        printf("Requested too many blocks. Cannot read\n");
+        return false;
+    }
+
+    uint32_t addr = (SD_card_type_global == SDHC_SDXC_TYPE)
+                        ? block_num
+                        : block_num * 512;
+    byte args[4] = {
+    (addr >> 24) & 0xFF,
+    (addr >> 16) & 0xFF,
+    (addr >> 8) & 0xFF,
+    addr & 0xFF
+    };
+
+    // CMD24 to write one block of BLOCK_LEN (assumes length is 512)
+    if (SD_send_command_r1(24, args, false) != 0x0) {
+        printf("R1 response for SD_write_block() did not match expected value\n");
+        SPI_cs_high(SD_CS_global);
+        return false;
+    }
+    // Start token
+    SPI_transfer_byte(0xFE, MODE_0);
+
+    // Send data
+    for (int i = 0; i < 512; i++) {
+        SPI_transfer_byte(data_to_write[i], MODE_0);
+    }
+
+    // Dummy CRC
+    SPI_transfer_byte(SD_MOSI_IDLE_BITS, MODE_0);
+    SPI_transfer_byte(SD_MOSI_IDLE_BITS, MODE_0);
+
+    // read the data response token from the card
+    byte response;
+    int attempts = 0;
+    do {
+        response = SPI_transfer_byte(SD_MOSI_IDLE_BITS, MODE_0);
+        attempts++;
+        // bit 4 must be 0 and bit 0 must be 1 to indicate a data response
+    } while ((response & 0x11) != 0x01 && attempts < SD_RESPONSE_TIMEOUT);
+    if (attempts == SD_RESPONSE_TIMEOUT) {
+        printf("Timeout waiting for response token in SD_write_block()\n");
+        SPI_cs_high(SD_CS_global);
+        return false;
+    }
+    byte status = (response >> 1) & 0x07; // extract bits [3:1]
+    if (status != DATA_ACCEPTED) {
+        if (status == DATA_REJECTED_DUE_TO_CRC_ERROR) {
+            printf("Data rejected due to CRC error\n");
+        }
+        else {
+            // DATA_REJECTED_DUE_TO_WRITE_ERROR
+            printf("Data rejected due to write error\n");
+        }
+        // can use CMD13 to see what went wrong here
+        uint16_t status_reg = SD_send_command_r2(13, NULL, true);
+        printf("Status register: %x\n", status_reg);
+        return false;
+    }
+
+    // wait for busy period to end before we can transmit again
+    attempts = 0;
+    while (SPI_transfer_byte(SD_MOSI_IDLE_BITS, MODE_0) == 0x0 && (++attempts < (int)1e5));
+    if (attempts == (int)1e5) {
+        printf("timed out waiting for busy period to end in SD_write_block() function\n");
+    }
+    
+    SPI_cs_high(SD_CS_global);
+    return true;
+}
+
+bool SD_write_many_blocks(uint32_t starting_block_num, const byte* data_to_write, size_t num_blocks) {
+    if (num_blocks == 0) {
+        printf("Must write at least one block of memory\n");
+        return false;
+    }
+    if (starting_block_num + num_blocks > SD_number_of_blocks_global) {
+        printf("Requested too many blocks. Cannot write\n");
+        return false;
+    }
+
+    uint32_t addr = (SD_card_type_global == SDHC_SDXC_TYPE)
+                        ? starting_block_num
+                        : starting_block_num * 512;
+    byte args[4] = {
+    (addr >> 24) & 0xFF,
+    (addr >> 16) & 0xFF,
+    (addr >> 8) & 0xFF,
+    addr & 0xFF
+    };
+
+    // CMD25 to write multiple block of BLOCK_LEN (assumes length is 512)
+    if (SD_send_command_r1(25, args, false) != 0x0) {
+        printf("R1 response for SD_write_many_blocks() did not match expected value\n");
+        goto exit_with_failure;
+    }
+    unsigned int attempts = 0;
+    for (int i = 0; i < num_blocks; i++) {
+        // Start token (not the same as single block write or reads)
+        SPI_transfer_byte(0xFC, MODE_0);
+
+        // Send data
+        for (int j = 0; j < 512; j++) {
+            SPI_transfer_byte(data_to_write[512 * i + j], MODE_0);
+        }
+
+        // Dummy CRC
+        SPI_transfer_byte(SD_MOSI_IDLE_BITS, MODE_0);
+        SPI_transfer_byte(SD_MOSI_IDLE_BITS, MODE_0);
+
+        // read the data response token from the card
+        byte response;
+        do {
+            // the upper 3 bits of the response are don't care
+            response = SPI_transfer_byte(SD_MOSI_IDLE_BITS, MODE_0) & 0x1F;
+            attempts++;
+            // bit 4 must be 0 and bit 0 must be 1 to indicate a data response
+        } while ((response & 0x11) != 0x01 && attempts < SD_RESPONSE_TIMEOUT);
+        if (attempts == SD_RESPONSE_TIMEOUT) {
+            printf("Timed out waiting for SD card response token in SD_write_many_blocks()\n");
+            goto exit_with_failure;
+        }
+        byte status = (response >> 1) & 0x07; // extract bits [3:1]
+        if (status != DATA_ACCEPTED) {
+            if (status == DATA_REJECTED_DUE_TO_CRC_ERROR) {
+                printf("Data rejected due to CRC error\n");
+            }
+            else {
+                // DATA_REJECTED_DUE_TO_WRITE_ERROR
+                printf("Data rejected due to write error\n");
+            }
+            // can use CMD13 to see what went wrong here
+            uint16_t status_reg = SD_send_command_r2(13, NULL, true);
+            printf("Status register: %x\n", status_reg);
+            return false;
+        }
+        // wait for busy period to end before we can transmit again
+        attempts = 0;
+        while (SPI_transfer_byte(SD_MOSI_IDLE_BITS, MODE_0) == 0x0 && (++attempts < (int)1e5));
+        if (attempts == (int)1e5) {
+            printf("Timed out waiting for the busy condition to end in SD_write_many_blocks()\n");
+            goto exit_with_failure;
+        }
+    }
+    // send the STOP TRAN token
+    SPI_transfer_byte(0xFD, MODE_0);
+    // wait for card to end the busy condition again
+    attempts = 0;
+    while (SPI_transfer_byte(SD_MOSI_IDLE_BITS, MODE_0) == 0x0 && (++attempts < (int)1e5));
+    if (attempts == (int)1e5) {
+        printf("Timed out waiting for the busy condition to end in SD_write_many_blocks()\n");
+        goto exit_with_failure;
+    }
+    SPI_cs_high(SD_CS_global);
+    return true;
+    exit_with_failure:
+    SPI_cs_high(SD_CS_global);
+    return false;
+}
+
+bool SD_clear_block(uint32_t block_num) {
+    // if block is already empty then return early
+    if (SD_is_block_empty(block_num)) return true;
+
+    // else write 512 0s to the block
+    byte zeroes[512] = {0}; // set all elements to 0
+    return SD_write_block(block_num, (const byte*)zeroes);
+}
+
+bool SD_clear_many_blocks(uint32_t starting_block_num, size_t num_blocks) {
+    byte *zeroes = calloc(num_blocks, 512); // num_blocks entries of size 512 bytes
+    if (!zeroes) {
+        printf("malloc failed inside SD_clear_many_blocks() function\n");
+        return false;
+    }
+    if (!SD_write_many_blocks(starting_block_num, zeroes, num_blocks)) {
+        printf("SD_write_many_blocks() failed inside SD_clear_many_blocks()\n");
+        return false;
     }
     return true;
 }
