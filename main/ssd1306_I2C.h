@@ -1,4 +1,4 @@
-#ifndef ssd1306_I2C_H // header guard
+#ifndef SSD1306_I2C_H // header guard
 #define SSD1306_I2C_H
 
 #include <string.h>

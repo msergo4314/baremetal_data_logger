@@ -13,26 +13,16 @@
 #include "mpu6050_I2C.h"
 #include "SD_card_SPI.h"
 
-void app_main(void)
-{
+void app_main(void) {
     char SD_string[512] = "";
-    // gpio_set_direction(SPI_CLK, 0);
-    // int temp_read = gpio_get_level(SPI_CLK);
-    // printf("expecting 0, read: %d\n", temp_read);
-    // gpio_set_direction(SPI_CLK, 1);
-    // temp_read = gpio_get_level(SPI_CLK);
-    // printf("expecting 1, read: %d\n", temp_read);
-
     if (!SD_card_init(5)) {
         printf("Could not init SD card\n");
         return;
     } else {
         printf("SD card init successful\n");
     }
-    printf("OLED init success: %d\n", (int)ssd1306_init()); // could catch the value for checks
-    printf("MPU init success: %d\n", (int)mpu6050_init(MPU6050_RANGE_8_G, MPU6050_RANGE_1000_DEG)); // could catch the value for checks
-    // printf("Looking for OLED: %d\n", (int)I2C_find_device(SSD1306_ADDRESS));
-    // printf("Looking for MPU: %d\n", (int)I2C_find_device(MPU6050_ADDRESS));
+    printf("OLED init success: %d\n", (int)ssd1306_init());
+    printf("MPU init success: %d\n", (int)mpu6050_init(MPU6050_RANGE_8_G, MPU6050_RANGE_1000_DEG));
     
     int64_t start = esp_rtc_get_time_us(); // returns time in microseconds 
     ssd1306_refresh_display();
@@ -42,7 +32,7 @@ void app_main(void)
     printf("Elapsed time transmitting %.0f bits with I2C bus: %lld us (%.3f sec)\n", bits, elapsed, (elapsed) / 1e6);
     printf("Estimated I2C speed: %.4lf bits/sec\n", bits / (elapsed / 1e6));
 
-    byte* block_data = malloc(512);
+    byte* block_data = malloc(512 * 10);
     if (block_data == NULL) {
         printf("block data storage buffer could not malloc\n");
         return;
@@ -68,11 +58,6 @@ void app_main(void)
 
     block_to_read = 500000;
     printf("reading 10 blocks\n");
-    block_data = realloc(block_data, 512 * 10);
-    if (block_data == NULL) {
-        printf("block data storage buffer could not malloc\n");
-        return;
-    }
     start = esp_rtc_get_time_us();
     if (!SD_read_many_blocks(block_to_read, block_data, 10)) {
         printf("10 block read of block %d failed\n", block_to_read);
@@ -83,43 +68,59 @@ void app_main(void)
     elapsed = end - start;
     printf("Read took %.4f ms\n", elapsed / 1000.0);
 
-    for (int i=0; i < 10; i++) {
-        printf("Block %d data:\n", block_to_read + i);
-        for(int j = 0; j < 512; j++) {
-            printf("%x ", block_data[512 * i + j]);
-            if (j == 511) {
-                printf("\n");
-            }
-        }
+    // for (int i=0; i < 10; i++) {
+    //     printf("Block %d data:\n", block_to_read + i);
+    //     for(int j = 0; j < 512; j++) {
+    //         printf("%x ", block_data[512 * i + j]);
+    //         if (j == 511) {
+    //             printf("\n");
+    //         }
+    //     }
         
-    }
+    // }
 
     printf("\n\nCopying block 0 to block 500 000\n");
-    block_data = realloc(block_data, 512);
-    if (!block_data) {
-        printf("realloc failed\n");
-        return;
-    }
     SD_read_block(0, block_data);
     if (!SD_write_block(500000, (const byte*)block_data)) {
+        free(block_data);
         printf("SD write failed\n");
         return;
     }
     printf("contents of block 0 should be in block 500 000 now:\n\n");
-    if (!SD_read_block(500000, block_data)) return;
+    if (!SD_read_block(500000, block_data)) {free(block_data); return;}
     printf("Read of block %d:\n", 500000);
     for (int i = 0; i < 512; i++) {
         printf("%x ", block_data[i]);
     }
     printf("\nSetting block 500 000 to \"Hello world!\"...\n");
     strcpy(SD_string, "Hello World!");
-    if (!SD_write_block(500000, (const byte*)SD_string)) return;
+    if (!SD_write_block(500000, (const byte*)SD_string)) {free(block_data); return;}
     char testing_str[512];
-    if (!SD_read_block(500000, (byte*)testing_str)) return;
+    if (!SD_read_block(500000, (byte*)testing_str)) {free(block_data); return;}
     printf("Block 500 000 says: %s\n", testing_str);
-    printf("length of testing string: %d\n", strlen(testing_str));
-    printf("STARTING OLED/MPU CODE\n");
-    // fflush(stdout);
+    
+    byte first[512] = {0};
+    first[0] = 0xAA;
+
+    for (int i = 0; i < 5; i++) {
+        memcpy(&(block_data[512* i]), first, sizeof(first));
+    }
+    if (!SD_write_many_blocks(500001, block_data, 5)) {printf("Write failure\n"); return;}
+    printf("Wrote 5 blocks successfully. Reading 6 blocks:\n");
+    byte *six_blocks = malloc(512 * 6);
+    if (!SD_read_many_blocks(500000, six_blocks, 6)) {printf("Read failure\n"); return;}
+
+    for (int i=0; i < 6; i++) {
+        printf("Block %d data:\n", block_to_read + i);
+        for(int j = 0; j < 512; j++) {
+            printf("%02x ", six_blocks[512 * i + j]);
+            if (j == 511) {
+                printf("\n");
+            }
+        }
+        
+    }
+    free(six_blocks);
 
     mpu6050_xyz_data acceleration, gyro;
     float temperature;

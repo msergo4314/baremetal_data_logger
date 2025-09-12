@@ -414,8 +414,9 @@ bool SD_read_many_blocks(uint32_t starting_block_num, byte* block_data, size_t n
     };
 
     // CMD18 to read multiple blocks
-    if (SD_send_command_r1(18, args, false) != 0x0) {
-        printf("CMD18 did not return the correct R1 response\n");
+    byte response = SD_send_command_r1(18, args, false);
+    if (response != 0x0) {
+        printf("CMD18 did not return the correct R1 response. Expected 0x0, got %x\n", response);
         SPI_cs_high(SD_CS_global);
         return false;
     }
@@ -428,6 +429,7 @@ bool SD_read_many_blocks(uint32_t starting_block_num, byte* block_data, size_t n
         byte token;
         do {
             token = SPI_transfer_byte(SD_MOSI_IDLE_BITS, MODE_0);
+            // if (token != 0xFF) {printf("TOKEN: %x (block number %d)\n", token, (int)i);}
             if (++attempts > (int)1e5) {
                 SPI_cs_high(SD_CS_global);
                 printf("Timeout waiting for data token\n");
@@ -627,11 +629,12 @@ bool SD_write_block(uint32_t block_num, const byte* data_to_write) {
 
     // wait for busy period to end before we can transmit again
     attempts = 0;
-    while (SPI_transfer_byte(SD_MOSI_IDLE_BITS, MODE_0) == 0x0 && (++attempts < (int)1e5));
+    while (SPI_transfer_byte(SD_MOSI_IDLE_BITS, MODE_0) != 0xFF && (++attempts < (int)1e5));
     if (attempts == (int)1e5) {
         printf("timed out waiting for busy period to end in SD_write_block() function\n");
+        SPI_cs_high(SD_CS_global);
+        return false;
     }
-    
     SPI_cs_high(SD_CS_global);
     return true;
 }
@@ -663,7 +666,7 @@ bool SD_write_many_blocks(uint32_t starting_block_num, const byte* data_to_write
     }
     unsigned int attempts = 0;
     for (int i = 0; i < num_blocks; i++) {
-        // Start token (not the same as single block write or reads)
+        // Start token (not the same as single block write or reads!)
         SPI_transfer_byte(0xFC, MODE_0);
 
         // Send data
@@ -703,7 +706,7 @@ bool SD_write_many_blocks(uint32_t starting_block_num, const byte* data_to_write
         }
         // wait for busy period to end before we can transmit again
         attempts = 0;
-        while (SPI_transfer_byte(SD_MOSI_IDLE_BITS, MODE_0) == 0x0 && (++attempts < (int)1e5));
+        while (SPI_transfer_byte(SD_MOSI_IDLE_BITS, MODE_0) !=0xFF && (++attempts < (int)1e5));
         if (attempts == (int)1e5) {
             printf("Timed out waiting for the busy condition to end in SD_write_many_blocks()\n");
             goto exit_with_failure;
@@ -713,11 +716,12 @@ bool SD_write_many_blocks(uint32_t starting_block_num, const byte* data_to_write
     SPI_transfer_byte(0xFD, MODE_0);
     // wait for card to end the busy condition again
     attempts = 0;
-    while (SPI_transfer_byte(SD_MOSI_IDLE_BITS, MODE_0) == 0x0 && (++attempts < (int)1e5));
+    while (SPI_transfer_byte(SD_MOSI_IDLE_BITS, MODE_0) != 0xFF && (++attempts < (int)1e5));
     if (attempts == (int)1e5) {
         printf("Timed out waiting for the busy condition to end in SD_write_many_blocks()\n");
         goto exit_with_failure;
     }
+
     SPI_cs_high(SD_CS_global);
     return true;
     exit_with_failure:

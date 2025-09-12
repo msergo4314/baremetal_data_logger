@@ -5,15 +5,14 @@
 #include "soc/gpio_struct.h"
 #include "soc/gpio_reg.h"
 
-#define SPI_MAX_ATTACHED_DEVICES 8
+#define SPI_MAX_ATTACHED_DEVICES 8 // how many devices can be used at once
 
 typedef uint8_t byte;
 
+// Uses the default pins, but should work with any GPIO pins in the range of 0-31
 #define SPI_CLK 18
 #define SPI_MISO 19
 #define SPI_MOSI 23
-
-// #define SPI_CS_0 5
 
 typedef enum mode {
     MODE_0 = 0b00,
@@ -21,11 +20,6 @@ typedef enum mode {
     MODE_2 = 0b10,
     MODE_3 = 0b11,
 } SPI_MODE;
-
-typedef struct {
-    gpio_num_t cs_pin;
-    SPI_MODE mode;
-} SPI_device_t;
 
 // NOTE: CS must be in range 0-31
 inline void SPI_cs_low(gpio_num_t CS) {GPIO.out_w1tc = 1U << CS;}

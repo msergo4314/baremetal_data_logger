@@ -1,6 +1,11 @@
 #include "my_SPI.h"
 #define _NOP() __asm__ __volatile__ ("nop")
 
+typedef struct {
+    gpio_num_t cs_pin;
+    SPI_MODE mode;
+} SPI_device_t;
+
 // write directly to the registers instead of gpio_set_level which is slow
 static inline void clk_low(void) {GPIO.out_w1tc = 1U << SPI_CLK;}
 static inline void clk_high(void) {GPIO.out_w1ts = 1U << SPI_CLK;}
@@ -238,7 +243,6 @@ void SPI_set_mosi(bool mosi_logic_level) {
 }
 
 size_t SPI_get_clock_speed_Hz() {
-    // printf("Time per NOP (assuming in a loop): %.2lf ns\n", SPI_time_NOP());
 
     // just use mode 0 here and don't touch any CS pins to make sure we don't send anything
     clk_low();
@@ -295,7 +299,7 @@ void SPI_set_frequency(uint16_t desired_frequency_kHz) {
         half_cyle_NOP_delay_global = best_nops;
         current_Hz_global = (double)SPI_get_clock_speed_Hz();
         // printf("High-speed quantized region. Picked %u NOPs (%.0lf Hz)\n", best_nops, current_Hz_global);
-        printf("Changed speed to %.0lf kHz\n", current_Hz_global / 1000);
+        // printf("Changed speed to %.0lf kHz\n", current_Hz_global / 1000);
         return;
     }
 

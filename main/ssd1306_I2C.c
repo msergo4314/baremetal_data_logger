@@ -519,7 +519,7 @@ bool ssd1306_refresh_page(byte page_to_refresh) {
     return true;
 }
 
-bool ssd_1306_verify_coordinates_are_valid(ssd1306_pixel_coordinate coordinate) {
+bool ssd1306_verify_coordinates_are_valid(ssd1306_pixel_coordinate coordinate) {
     if (coordinate.x >= SSD1306_OLED_WIDTH || coordinate.y >= SSD1306_OLED_HEIGHT) {
         return false;
     }
