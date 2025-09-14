@@ -34,9 +34,13 @@ One drawback of the ESP-idf is that Adafruit does NOT provide their own librarie
 │   ├── mpu6050_I2C.h
 │   ├── my_I2C.c
 │   ├── my_I2C.h
+│   ├── my_SPI.c
+│   ├── my_SPI.h
+│   ├── SD_card_SPI.c
+│   ├── SD_card_SPI.h
 │   ├── ssd1306_I2C.c
 │   └── ssd1306_I2C.h
-└── README.md                  This is the file you are currently reading
+└── README.md           <--This is the file you are currently reading
 ```
 
 The project **baremetal_data_logger** contains one source file in C language [main.c](main/main.c). The file is located in folder [main](main). However, main.c is only responsible for the high level abstraction -- The I2C and SPI protocols are located in my_I2C.h, my_SPI.h, and the corresponding C files (my_I2C.c and my_SPI.c). These provide a bit banged implementation of each protocol. Each of the devices has it's own header and C file which depend on the corresponding protocol headers. The OLED and MPU use I2C while the SD card uses SPI. The files for the devices contain wrappers for some of the protocol functions and provide high level functionality which is used in main (see below for each).
@@ -45,14 +49,70 @@ Below are the explanations of the files in the main folder with implementation d
 
 # my_I2C.h and my_I2C.c
 
+This module implements a lightweight I²C communication driver for the ESP32.
+
+-Provides initialization, single-byte reads/writes, and multi-byte transfer functions.
+
+-Low-level ESP-IDF driver functions are wrapped into a simpler interface for common use.
+
+-Acknowledge handling, stop/restart conditions, and transfer retries are managed internally.
+
+-Used as the base layer for higher-level devices such as the MPU6050 IMU and SSD1306 drivers.
+
 # SSD1306_I2C.h and SSD1306_I2C.c
+
+This module controls an SSD1306-based OLED display over I²C.
+
+-Uses the my_I2C interface for communication with the display hardware.
+
+-Initializes the display with the correct sequence of commands (addressing mode, contrast, scan direction, etc.).
+
+-Provides functions for sending commands and pixel data, drawing to the screen, and refreshing the display.
+
+-Provides a very basic graphics library with functions for drawing rectangles, lines, and setting pixels
+
+-Utilizes a GDDRAM image to store and update the memory of the OLED instead of reading from the OLED (would be slow)
 
 # my_SPI.h and .c
 
+This module provides a simplified SPI driver interface for the ESP32.
+
+-Initializes the SPI bus with configurable clock, polarity, and phase (SPI modes).
+
+-Functions to send and receive single or multiple bytes.
+
+-Used by higher-level peripherals that communicate over SPI, such as SD cards.
+
+-Abstracts ESP-IDF SPI driver calls into a cleaner C API for embedded applications.
+
 # mpu6050.h and mpu6050.c
+
+This module interfaces with the MPU6050 6-axis IMU (3-axis accelerometer + 3-axis gyroscope).
+
+-Supports initialization, register configuration, and data acquisition.
+
+-Provides APIs to set accelerometer/gyroscope ranges, digital low-pass filter frequency, and sample rate.
+
+-Implements conversion of raw register values into floating-point acceleration (g), rotation rate (°/s), and temperature (°C).
+
+-Relies on my_I2C for communication with the MPU6050 over I²C.
+
+-Includes timing considerations: e.g., after issuing a reset, the driver uses esp_rom_delay_us() instead of FreeRTOS delays to avoid NACKs during reboot.
 
 # SD_card.h and SD_card.c
 
-the datasheet for the SD card is essentially useless because the SD card uses a protocol defined by the SD association. Unfortuantely, the documentation pdf was 500 pages long, and I wasn't going through all that
+This module implements raw SD card communication over SPI.
+
+-Supports initialization of SD/SDHC cards into SPI mode.
+
+-Implements single-block (CMD17, CMD24) and multi-block (CMD18, CMD25) read/write operations.
+
+-Handles command/response tokens, data blocks, CRCs (simplified/disabled in SPI mode), and stop tokens for multi-block writes.
+
+-Provides polling for busy/ready states during writes, ensuring data integrity.
+
+-Uses the my_SPI interface as the transport layer.
+
+-Designed for raw block access (no FAT/exFAT filesystem layer). This makes it suitable for logging raw data or as a building block for a future filesystem implementation.
 
 [clutch link](https://elm-chan.org/docs/mmc/mmc_e.html)
