@@ -1,8 +1,8 @@
 #include "SD_card_SPI.h"
 #include "esp_rom_sys.h" // for timing
 #include <string.h>
-/*
 
+/*
 ASSUMES SD version 2.0 or higher
 
 Communication with the SD card is performed by sending commands to it and receiving responses from it.
@@ -13,11 +13,9 @@ additional information may be provided. Next, there are 7 bits containing a Cycl
 
 */
 
-// SDHC 3724 MB
-
 // SD protocol specifies MOSI is high when not transmitting 
 #define SD_MOSI_IDLE_BITS 0xFF
-#define SD_RESPONSE_TIMEOUT 8 // max number of bytes to wait before the SD card sends a response
+#define SD_RESPONSE_TIMEOUT 8 // max number of bytes to wait for the SD card response
 
 // masks for R1 response error bits
 #define R1_RESPONSE_IDLE_ERROR              1U
@@ -28,19 +26,7 @@ additional information may be provided. Next, there are 7 bits containing a Cycl
 #define R1_RESPONSE_ADDRESS_ERROR           1U << 5
 #define R1_RESPONSE_PARAMETER_ERROR         1U << 6
 
-
-// static byte CMD0[6] = {0x40 + 0, 0x00, 0x00, 0x00, 0x00, 0x95};
-// static byte CMD8[6] = {0x40 + 8, 0x00, 0x00, 0x01, 0xAA, 0x87};
-// static byte CMD58[6] = {0x40 + 58, 0x00, 0x00, 0x00, 0x00, 0x01};
-// static byte CMD55[6] = {0x40 + 55, 0x00, 0x00, 0x00, 0x00, 0x01};
-// static byte ACMD41[6] = {0x40 + 41, 0x40, 0x00, 0x00, 0x00, 0x01};
-// static byte CMD17[6] = {0x40 + 17, 0x00, 0x00, 0x00, 0x00, 0x01};
-
-// static byte SD_get_response(gpio_num_t SD_card_cs);
-
 // Send a 6 byte command to the SD card
-// Returns the first byte of the response
-
 static byte SD_send_command_r1(byte cmd, const byte *args, bool done);
 static uint16_t SD_send_command_r2(byte cmd, const byte *args, bool done);
 static bool SD_send_command_r3(byte cmd, const byte *args, byte response[5], bool done);
@@ -52,9 +38,9 @@ static bool verify_voltage_and_version(gpio_num_t SD_card_chip_select);
 static uint32_t get_CSD_slice(const uint8_t* csd, byte upper_index, byte lower_index);
 
 typedef enum {
-    SDSC_TYPE, // SDSC
-    SDHC_SDXC_TYPE, //SDHC/ SDXC
-    UNKNOWN_TYPE
+    SDSC_TYPE, // SDSC (standard capacity)
+    SDHC_SDXC_TYPE, //SDHC/ SDXC (High capacity or very high capacity)
+    UNKNOWN_TYPE = -1
 } SD_CARD_TYPE;
 
 // data response tokens for write commands (CMD 24 and 25)
@@ -68,9 +54,6 @@ static SD_CARD_TYPE SD_card_type_global = UNKNOWN_TYPE;
 static gpio_num_t SD_CS_global = GPIO_NUM_NC; // chip select for SD card
 static uint32_t SD_number_of_blocks_global = 0; // number of 512 byte blocks
 
-/*
-initialize the SPI mode of the SD card
-*/
 bool SD_card_init(gpio_num_t SD_card_chip_select) {
     // after power reaches > 2.2 V, wait at least 1 ms.
     esp_rom_delay_us(1000); // likely not needed but cheap to do
@@ -106,7 +89,7 @@ bool SD_card_init(gpio_num_t SD_card_chip_select) {
     do {
         // CMD55 to indicate next CMD is application specific
         response = SD_send_command_r1(55, NULL, true);
-        if (response > 0x01) {
+        if (response != 0x01) {
             printf("CMD55 failed with response %x!\n", response);
             return false;
         }
@@ -123,8 +106,9 @@ bool SD_card_init(gpio_num_t SD_card_chip_select) {
 
     // determine if SDSC (byte addressing) or SDXC by reading OCR with CMD58
     uint8_t r3[5];
-    if (SD_send_command_r3(58, NULL, r3, true)) {
-        printf("R1=%02x, OCR=%02x%02x%02x%02x\n", r3[0], r3[1], r3[2], r3[3], r3[4]);
+    if (!SD_send_command_r3(58, NULL, r3, true)) {
+        printf("CMD 58 fail: R1=%02x, OCR=%02x%02x%02x%02x\n", r3[0], r3[1], r3[2], r3[3], r3[4]);
+        return false;
     }
     if (r3[1] == 0x80) {
         // SDSC
@@ -256,9 +240,8 @@ static byte SD_send_command_r1b(byte cmd, const byte* args) {
     return r1;
 }
 
-
 /*
-reads 5 bytes (40 bits) of the response (R1 + 4 bytes OCR). Caller must free returned array
+reads 5 bytes (40 bits) of the response (R1 + 4 bytes OCR)
 Used only for command 58
 */
 static bool SD_send_command_r3(byte cmd, const byte *args, byte response[5], bool done) {
@@ -456,7 +439,14 @@ bool SD_read_many_blocks(uint32_t starting_block_num, byte* block_data, size_t n
     return true;
 }
 
-// helper to send CMD9 and read 16-byte CSD (card specific data)
+/**
+ * @brief Read the Card-Specific Data (CSD) register (16 bytes).
+ *
+ * Issues CMD9 and waits for a data token before reading.
+ *
+ * @param csd Pointer to a 16-byte buffer to store the CSD.
+ * @return true if the read succeeds, false otherwise.
+ */
 bool SD_read_CSD(byte* csd) {
 
     if (SD_send_command_r1(9, NULL, false) != 0x0) {
@@ -489,7 +479,14 @@ bool SD_read_CSD(byte* csd) {
     return true;
 }
 
-// compute number of 512-byte blocks
+/**
+ * @brief Compute the number of 512-byte blocks from the CSD register.
+ *
+ * Interprets fields differently depending on whether the card is SDSC or SDHC/SDXC.
+ *
+ * @param csd The 16-byte CSD register.
+ * @return The total number of 512-byte blocks.
+ */
 uint32_t SD_get_block_count(byte* csd) {
     
     byte C_SIZE_MULT, READ_BL_LEN;

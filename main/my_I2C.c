@@ -30,9 +30,40 @@ static inline void sda_low(void);
 static inline void scl_high(void);
 static inline void scl_low(void);
 static inline void I2C_delay(void);
+
+/**
+ * @brief Generate an I2C START condition.
+ *
+ * SDA transitions from HIGH to LOW while SCL remains HIGH.
+ * Leaves the bus ready for data transmission.
+ */
 static void I2C_start(void);
+
+/**
+ * @brief Generate an I2C STOP condition.
+ *
+ * SDA transitions from LOW to HIGH while SCL remains HIGH.
+ * Releases the bus to idle state.
+ */
 static void I2C_stop(void);
+
+/**
+ * @brief Write one byte to the I2C bus.
+ *
+ * Sends bits MSB-first, followed by the slave ACK/NACK.
+ *
+ * @param byte_to_write  The data byte to transmit.
+ * @return true if the slave acknowledged, false otherwise.
+ */
 static bool I2C_write_byte(byte byte_to_write);
+
+/**
+ * @brief Transmit a 7-bit slave address with the R/W bit.
+ *
+ * @param address_of_slave  7-bit I2C slave address.
+ * @param rw                READ or WRITE operation.
+ * @return true if the slave acknowledged, false otherwise.
+ */
 static inline bool transmit_address_and_RW(byte address_of_slave, READ_OR_WRITE rw);
 
 // make functions static if they won't be used in external files ("private")
@@ -44,9 +75,8 @@ static inline void scl_low(void){ gpio_set_level(I2C_SCL, 0); }
 // 5 NOPs is the lowest possible delay we can have before the SSD1306 NACKs consistently
 // more NOPs safer -- especially for longer wires
 static inline void I2C_delay(void) {for (volatile int i = 0; i < 7; i++) { _NOP(); }}
-// static inline void I2C_delay(void) {esp_rom_delay_us(1);} // standard I2C uses 4 microsecond wait times
+// static inline void I2C_delay(void) {esp_rom_delay_us(2);} // standard I2C uses 4 microsecond wait times
 
-// initialize the SDA and SCL pins of the ESP32
 void I2C_init(void) {
     gpio_reset_pin(I2C_SCL);
     gpio_reset_pin(I2C_SDA);
@@ -64,7 +94,6 @@ void I2C_init(void) {
     return;
 }
 
-// ACK is used to indicate if we want to read further, NACK indicates no more transmission
 byte I2C_read_byte(bool ack) {
     byte data = 0x0;
     sda_high(); // release SDA so slave can drive it
@@ -113,7 +142,6 @@ bool I2C_send_byte_stream(byte slave_address, const byte *stream_of_bytes,
 }
 
 
-// reading one byte from a slave device as a new transmission
 bool I2C_read_one(byte slave_address, byte register_to_read, byte* value) {
     if (!value) {
         printf("passed NULL pointer\n");
@@ -134,7 +162,6 @@ bool I2C_read_one(byte slave_address, byte register_to_read, byte* value) {
     return true;
 }
 
-// reading a continuous block of memory from a slave as a new transmission
 bool I2C_read_many(byte slave_address, byte starting_register, size_t number_of_bytes_to_read, byte* read_bytes) {
         if (!read_bytes) {
         printf("passed NULL pointer\n");
@@ -211,8 +238,6 @@ static bool I2C_write_byte(byte byte_to_write) {
         can only delay if you write a 1 to SDA since rise times >> fall times
         However, this is not to spec and a little risky for small performance gains.
         */
-        // if (byte_to_write & (1 << i)) 
-        // I2C_delay(); // delay to let the value of SDA propagate
         /*
         set SCL high for fixed time period. At this point, the slave will read SDA
         SDA must be stable at this point.

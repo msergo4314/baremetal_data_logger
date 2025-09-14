@@ -436,6 +436,11 @@ bool ssd1306_draw_line(ssd1306_pixel_coordinate p1, ssd1306_pixel_coordinate p2,
     return ssd1306_refresh_display(); // Use partial page update for better speed
 }
 
+/**
+ * @brief Reset (clear) one page in the internal GDDRAM buffer.
+ *
+ * @param page Page index (0–7).
+ */
 bool ssd1306reset_page(byte page) {
     memset(ssd1306GDDRAM_buffer[page], 0x0, 128);
     return ssd1306_refresh_page(page);
@@ -492,7 +497,6 @@ bool ssd1306_draw_vline(byte x, byte y1, byte y2, bool flush) {
     return true;
 }
 
-// faster than refreshing the whole display
 bool ssd1306_refresh_page(byte page_to_refresh) {
     if (page_to_refresh >= SSD1306_NUM_PAGES) {
         printf("Page must be in range 0-%d\n", SSD1306_NUM_PAGES - 1);

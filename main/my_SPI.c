@@ -261,9 +261,6 @@ size_t SPI_get_clock_speed_Hz() {
 
 // input is frequency in kHz
 void SPI_set_frequency(uint16_t desired_frequency_kHz) {
-    
-    // CLOCK Period = FIXED OFFSET DUE TO LOOPS
-    
     if (desired_frequency_kHz * 1000 > max_Hz_global) {
         printf("Cannot exceed %.0lf Hz SPI speeds. Setting to %.0lf MHz\n", max_Hz_global, max_Hz_global);
         half_cyle_NOP_delay_global = 0;
@@ -317,14 +314,12 @@ void SPI_set_frequency(uint16_t desired_frequency_kHz) {
             half_cyle_NOP_delay_global--;
         }
         real_Hz = (double)SPI_get_clock_speed_Hz();
-        // printf("new frequency: %d kHz\n", (int)real_Hz / 1000);
         error = ((real_Hz - desired_Hz) / desired_Hz);
         if (error < 0.0) error *= -1;
         i++;
     }
-    // printf("New frequency set: %lf\n", real_Hz);
     current_Hz_global = real_Hz;
-    printf("Changed speed to %.0lf kHz\n", current_Hz_global / 1000);
+    // printf("Changed speed to %.0lf kHz\n", current_Hz_global / 1000);
     return;
 }
 
@@ -418,51 +413,6 @@ static inline byte send_byte_mode3(byte data_out) {
         }
     }
     return data_in;
-}
-/*
-waits for a certain byte value on MISO. Iterates up to max_iterations bytes
-does not change or set the chip select
-*/
-bool SPI_wait_for_value(byte target_value, byte dummy_value, size_t max_iterations, SPI_MODE mode) {
-    switch(mode) {
-        case MODE_0:
-            for (size_t i = 0; i < max_iterations; i++) {
-                byte rx;
-                rx = send_byte_mode0(dummy_value);
-                if (rx == target_value) {
-                    return true;
-                }
-            }
-            break;
-        case MODE_1:
-            for (size_t i = 0; i < max_iterations; i++) {
-                byte rx;
-                rx = send_byte_mode1(dummy_value);
-                if (rx == target_value) {
-                    return true;
-                }
-            }
-            break;
-        case MODE_2:
-            for (size_t i = 0; i < max_iterations; i++) {
-                byte rx;
-                rx = send_byte_mode2(dummy_value);
-                if (rx == target_value) {
-                    return true;
-                }
-            }
-            break;
-        case MODE_3:
-            for (size_t i = 0; i < max_iterations; i++) {
-                byte rx;
-                rx = send_byte_mode3(dummy_value);
-                if (rx == target_value) {
-                    return true;
-                }
-            }
-            break;
-    }
-    return false; // Timed out
 }
 
 byte SPI_transfer_byte(byte data, SPI_MODE mode) {

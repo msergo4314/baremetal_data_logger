@@ -13,6 +13,7 @@
 #include "mpu6050_I2C.h"
 #include "SD_card_SPI.h"
 
+
 void app_main(void) {
     char SD_string[512] = "";
     if (!SD_card_init(5)) {
@@ -46,7 +47,7 @@ void app_main(void) {
     }
     end = esp_rtc_get_time_us();
     elapsed = end - start;
-    printf("Read took %.4f ms\n", elapsed / 1000.0);
+    printf("Single block read took %.4f ms\n", elapsed / 1000.0);
 
     printf("Read of block %d:\n", block_to_read);
     for (int i = 0; i < 512; i++) {
@@ -66,31 +67,24 @@ void app_main(void) {
     }
     end = esp_rtc_get_time_us();
     elapsed = end - start;
-    printf("Read took %.4f ms\n", elapsed / 1000.0);
-
-    // for (int i=0; i < 10; i++) {
-    //     printf("Block %d data:\n", block_to_read + i);
-    //     for(int j = 0; j < 512; j++) {
-    //         printf("%x ", block_data[512 * i + j]);
-    //         if (j == 511) {
-    //             printf("\n");
-    //         }
-    //     }
-        
-    // }
+    printf("10 block read took %.4f ms\n", elapsed / 1000.0);
 
     printf("\n\nCopying block 0 to block 500 000\n");
     SD_read_block(0, block_data);
+    start = esp_rtc_get_time_us();
     if (!SD_write_block(500000, (const byte*)block_data)) {
         free(block_data);
         printf("SD write failed\n");
         return;
     }
+    end = esp_rtc_get_time_us();
+    elapsed = end - start;
+    printf("Single block write took %.4f ms\n", elapsed / 1000.0);
     printf("contents of block 0 should be in block 500 000 now:\n\n");
     if (!SD_read_block(500000, block_data)) {free(block_data); return;}
     printf("Read of block %d:\n", 500000);
     for (int i = 0; i < 512; i++) {
-        printf("%x ", block_data[i]);
+        printf("%02x ", block_data[i]);
     }
     printf("\nSetting block 500 000 to \"Hello world!\"...\n");
     strcpy(SD_string, "Hello World!");
@@ -105,21 +99,25 @@ void app_main(void) {
     for (int i = 0; i < 5; i++) {
         memcpy(&(block_data[512* i]), first, sizeof(first));
     }
+    start = esp_rtc_get_time_us();
     if (!SD_write_many_blocks(500001, block_data, 5)) {printf("Write failure\n"); return;}
-    printf("Wrote 5 blocks successfully. Reading 6 blocks:\n");
+    end = esp_rtc_get_time_us();
+    elapsed = end - start;
+    printf("5 block write took %.4f ms\n", elapsed / 1000.0);
+    // printf("Wrote 5 blocks successfully. Reading 6 blocks:\n");
     byte *six_blocks = malloc(512 * 6);
     if (!SD_read_many_blocks(500000, six_blocks, 6)) {printf("Read failure\n"); return;}
 
-    for (int i=0; i < 6; i++) {
-        printf("Block %d data:\n", block_to_read + i);
-        for(int j = 0; j < 512; j++) {
-            printf("%02x ", six_blocks[512 * i + j]);
-            if (j == 511) {
-                printf("\n");
-            }
-        }
-        
-    }
+    // for (int i=0; i < 6; i++) {
+    //     printf("Block %d data:\n", block_to_read + i);
+    //     for(int j = 0; j < 512; j++) {
+    //         printf("%02x ", six_blocks[512 * i + j]);
+    //         if (j == 511) {
+    //             printf("\n");
+    //         }
+    //     }
+    // }
+    if(!SD_clear_many_blocks(500000, 6)) return;
     free(six_blocks);
 
     mpu6050_xyz_data acceleration, gyro;
