@@ -743,7 +743,9 @@ bool SD_clear_many_blocks(uint32_t starting_block_num, size_t num_blocks) {
     }
     if (!SD_write_many_blocks(starting_block_num, zeroes, num_blocks)) {
         printf("SD_write_many_blocks() failed inside SD_clear_many_blocks()\n");
+        free(zeroes);
         return false;
     }
+    free(zeroes);
     return true;
 }
