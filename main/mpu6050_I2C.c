@@ -78,7 +78,6 @@ bool mpu6050_read_all(mpu6050_xyz_data* accel, mpu6050_xyz_data* gyro, float* te
     gyro->x = raw_gyro_to_float(g_x);
     gyro->y = raw_gyro_to_float(g_y);
     gyro->z = raw_gyro_to_float(g_z);
-
     return true;
 }
 
@@ -119,7 +118,6 @@ bool mpu6050_set_sample_rate(uint32_t sample_rate_hz) {
     return mpu6050_write_to_register(MPU6050_SMPLRT_DIV_REG, sample_rate_div);
 }
 
-
 // packs the high and low bytes into a 16 bit signed integer
 static inline int16_t combine_bytes(byte high, byte low) {
     return (int16_t)((high << 8) | low);
@@ -159,25 +157,8 @@ static inline float raw_accel_to_float(mpu6050_raw_data raw_accel) {
     return ((float)raw_accel) / raw_LSBs_per_g;
 }
 
-static inline bool mpu6050_write_to_register(byte register_to_write_to, byte value_to_write) {
-    // send register we want to write to, then the value. Make sure the register can be written to
-    byte transmission[2] = {register_to_write_to, value_to_write};
-    return I2C_send_byte_stream(MPU6050_ADDRESS, transmission, 2, WRITE, true, true);
-}
-
-// wrapper for I2C_read_one() function
-static inline bool mpu6050_read_from_register(byte register_to_read, byte* register_value) {
-    return I2C_read_one(MPU6050_ADDRESS, register_to_read, register_value);
-}
-
-// wrapper for I2C_read_many() function
-static inline bool mpu6050_read_register_block(byte starting_register, byte* register_values, byte number_of_registers) {
-    return I2C_read_many(MPU6050_ADDRESS, starting_register, number_of_registers, register_values);
-}
-
 // converts a single dimension raw reading to float
 static inline float raw_gyro_to_float(mpu6050_raw_data raw_gyro) {
-    
     float raw_LSBs_per_degree_per_second;
     switch (current_gyro_range) {
         case MPU6050_RANGE_250_DEG:
@@ -199,4 +180,20 @@ static inline float raw_gyro_to_float(mpu6050_raw_data raw_gyro) {
     }
     // convert to degrees per second
     return (float)(raw_gyro / raw_LSBs_per_degree_per_second);
+}
+
+static inline bool mpu6050_write_to_register(byte register_to_write_to, byte value_to_write) {
+    // send register we want to write to, then the value. Make sure the register can be written to
+    byte transmission[2] = {register_to_write_to, value_to_write};
+    return I2C_send_byte_stream(MPU6050_ADDRESS, transmission, 2, WRITE, true, true);
+}
+
+// wrapper for I2C_read_one() function
+static inline bool mpu6050_read_from_register(byte register_to_read, byte* register_value) {
+    return I2C_read_one(MPU6050_ADDRESS, register_to_read, register_value);
+}
+
+// wrapper for I2C_read_many() function
+static inline bool mpu6050_read_register_block(byte starting_register, byte* register_values, byte number_of_registers) {
+    return I2C_read_many(MPU6050_ADDRESS, starting_register, number_of_registers, register_values);
 }

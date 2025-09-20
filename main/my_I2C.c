@@ -156,14 +156,13 @@ bool I2C_read_one(byte slave_address, byte register_to_read, byte* value) {
     I2C_start();
     if (!transmit_address_and_RW(slave_address, READ)) { I2C_stop(); return false; }
 
-    *value = I2C_read_byte(false); // false = NACK after single byte read
+    *value = I2C_read_byte(false); // false ==> NACK after single byte read
     I2C_stop();
-
     return true;
 }
 
 bool I2C_read_many(byte slave_address, byte starting_register, size_t number_of_bytes_to_read, byte* read_bytes) {
-        if (!read_bytes) {
+    if (!read_bytes) {
         printf("passed NULL pointer\n");
         return false;
     }
@@ -176,14 +175,12 @@ bool I2C_read_many(byte slave_address, byte starting_register, size_t number_of_
     I2C_start();
     if (!transmit_address_and_RW(slave_address, READ)) { I2C_stop(); return false; }
 
-    for (size_t i = 0; i < number_of_bytes_to_read; i++) {
-        if (i != number_of_bytes_to_read - 1) {
-            read_bytes[i] = I2C_read_byte(true);
-        } else {
-            // NACK when we are done reading
-            read_bytes[i] = I2C_read_byte(false);
-        }
+    // ACK all bytes except the last
+    for (size_t i = 0; i < number_of_bytes_to_read - 1; i++) {
+        read_bytes[i] = I2C_read_byte(true);
     }
+    // NACK the final byte to indicate we are done reading
+    read_bytes[number_of_bytes_to_read] = I2C_read_byte(false);
     I2C_stop();
     return true;
 }

@@ -36,6 +36,14 @@ static byte* get_bitmap_from_ascii(byte character);
 static inline bool ssd1306_write_command(byte command_code);
 static inline bool ssd1306_write_command2(byte command_code, byte command_argument);
 static inline bool ssd1306_write_bytes(const byte* stream_of_bytes, size_t number_of_bytes, bool start, bool stop);
+
+// used in wrappers for the header functions only
+static inline bool ssd1306_draw_line_core(ssd1306_pixel_coordinate p1, ssd1306_pixel_coordinate p2, bool flush, PIXEL_MODE on_or_off);
+static inline bool ssd1306_draw_hline_core(byte y, byte x1, byte x2, bool flush, PIXEL_MODE on_or_off);
+static inline bool ssd1306_draw_vline_core(byte x, byte y1, byte y2, bool flush, PIXEL_MODE on_or_off);
+static inline bool ssd1306_draw_rectangle_core(ssd1306_pixel_coordinate origin, byte width_px, byte height_px,
+                                                byte border_thickness_px, bool fill, PIXEL_MODE on_or_off);
+
 static bool ssd1306_set_page_address(byte page);
 static bool ssd1306_set_column_address(byte column);
 static bool ssd1306_set_column_start_and_end(byte column_start, byte column_end);
@@ -240,7 +248,7 @@ only supports the visible ASCII characters (32-126).
 NOTE: the left pixel offset determines the number of pixels that are NOT set (blank)
 */
 bool ssd1306_write_string_size8x8p(const char* string_to_print, byte x_offset_pixels_left,
-                                   byte x_offset_pixels_right, byte start_page) {
+                                   byte x_offset_pixels_right, byte start_page, bool flush) {
     // each character we print will be 8x8 pixels, so we can print a max of 16 characters if x_offset_pixels = 0
     if (!string_to_print) {
         printf("Passed NULL pointer\n");
@@ -282,10 +290,15 @@ bool ssd1306_write_string_size8x8p(const char* string_to_print, byte x_offset_pi
         current_column += 8;
         // printf("copied 8 bytes into column %d and row %d of the buffer\n", page_address, x_offset + 8 * i);
     }
+    if (!flush) {
+        return true;
+    }
     // Refresh only the modified pages
     for (int p = 0; p < SSD1306_NUM_PAGES; p++) {
         if (page_dirty[p]) {
-            ssd1306_refresh_page(p);
+            if (!ssd1306_refresh_page(p)) {
+                return false;
+            }
         }
     }
     return true;
@@ -298,7 +311,7 @@ height determines y distance in pixels including the origin
 always draws down and to the right
 */
 
-bool ssd1306_draw_rectangle(ssd1306_pixel_coordinate origin, byte width_px, byte height_px, byte border_thickness_px, bool fill) {
+static inline bool ssd1306_draw_rectangle_core(ssd1306_pixel_coordinate origin, byte width_px, byte height_px, byte border_thickness_px, bool fill, PIXEL_MODE on_or_off) {
     byte starting_page = origin.y / 8;
     byte vertical_bit = origin.y % 8;
     byte starting_column = origin.x;
@@ -351,16 +364,20 @@ bool ssd1306_draw_rectangle(ssd1306_pixel_coordinate origin, byte width_px, byte
     return ssd1306_refresh_display();
 }
 
-bool ssd1306_set_pixel_xy(byte x, byte y, ON_OFF on_or_off, bool flush) {
+bool ssd1306_draw_rectangle(ssd1306_pixel_coordinate origin, byte width_px, byte height_px, byte border_thickness_px, bool fill) {
+    return ssd1306_draw_rectangle_core(origin, width_px, height_px, border_thickness_px, fill, PIXEL_SET);
+}
+
+bool ssd1306_clear_rectangle(ssd1306_pixel_coordinate origin, byte width_px, byte height_px) {
+    return ssd1306_draw_rectangle_core(origin, width_px, height_px, 1, true, PIXEL_SET);
+}
+
+bool ssd1306_set_pixel_xy(byte x, byte y, PIXEL_MODE on_or_off, bool flush) {
     const ssd1306_pixel_coordinate coords = {x, y};
     return ssd1306_set_pixel(coords, on_or_off, flush);
 }
 
-/*
-note: 0 indexed. (0, 0) is top left of display
-the flush variable determines if the WHOLE screen is printed
-*/ 
-bool ssd1306_set_pixel(ssd1306_pixel_coordinate pixel_coords, ON_OFF on_or_off, bool flush) {
+bool ssd1306_set_pixel(ssd1306_pixel_coordinate pixel_coords, PIXEL_MODE on_or_off, bool flush) {
     
     byte column = pixel_coords.x; // 0-127
     byte page = pixel_coords.y / 8; // 0-7
@@ -377,7 +394,7 @@ bool ssd1306_set_pixel(ssd1306_pixel_coordinate pixel_coords, ON_OFF on_or_off, 
     // if the bit is already set, just exit the function. No work to be done.
     if (((ssd1306GDDRAM_buffer[page][column] >> bit) & 1) == on_or_off) return true;
 
-    else if (on_or_off == OFF) {
+    else if (on_or_off == PIXEL_CLEAR) {
         // set the correct bit to be 1 from 0
         // To do this, left shift a 1 into the correct position. Then invert this to get all 1s and one 0 in the correct spot.
         // Lastly, bitwise AND with the original value to set the 1 to a 0.
@@ -398,7 +415,7 @@ bool ssd1306_set_pixel(ssd1306_pixel_coordinate pixel_coords, ON_OFF on_or_off, 
 }
 
 // draws a line 1 pixel wide
-bool ssd1306_draw_line(ssd1306_pixel_coordinate p1, ssd1306_pixel_coordinate p2, bool flush) {
+static inline bool ssd1306_draw_line_core(ssd1306_pixel_coordinate p1, ssd1306_pixel_coordinate p2, bool flush, PIXEL_MODE on_or_off) {
     if (!ssd1306_verify_coordinates_are_valid(p1) || !ssd1306_verify_coordinates_are_valid(p2)) {
         printf("Invalid coordinates to draw line\n");
         return false;
@@ -422,7 +439,7 @@ bool ssd1306_draw_line(ssd1306_pixel_coordinate p1, ssd1306_pixel_coordinate p2,
     int err = dx + dy;
 
     while (1) {
-        if (!ssd1306_set_pixel_xy((byte)x1, (byte)y1, ON, false)) {
+        if (!ssd1306_set_pixel_xy((byte)x1, (byte)y1, on_or_off, false)) {
             printf("Failed to set pair: %d, %d\n", (int)x1, (int)y1);
             return false;
         }
@@ -436,6 +453,13 @@ bool ssd1306_draw_line(ssd1306_pixel_coordinate p1, ssd1306_pixel_coordinate p2,
     return ssd1306_refresh_display(); // Use partial page update for better speed
 }
 
+bool ssd1306_draw_line(ssd1306_pixel_coordinate p1, ssd1306_pixel_coordinate p2, bool flush) {
+    return ssd1306_draw_line_core(p1, p2, flush, PIXEL_SET);
+}
+
+bool ssd1306_clear_line(ssd1306_pixel_coordinate p1, ssd1306_pixel_coordinate p2, bool flush) {
+    return ssd1306_draw_line_core(p1, p2, flush, PIXEL_CLEAR);
+}
 /**
  * @brief Reset (clear) one page in the internal GDDRAM buffer.
  *
@@ -446,8 +470,7 @@ bool ssd1306reset_page(byte page) {
     return ssd1306_refresh_page(page);
 }
 
-// Horizontal line of width 1 pixel
-bool ssd1306_draw_hline(byte y, byte x1, byte x2, bool flush) {
+static inline bool ssd1306_draw_hline_core(byte y, byte x1, byte x2, bool flush, PIXEL_MODE on_or_off) {
     // Ensure coordinates are valid
     if (!ssd1306_verify_coordinates_are_valid((ssd1306_pixel_coordinate){.x = x1, .y = y}) ||
         !ssd1306_verify_coordinates_are_valid((ssd1306_pixel_coordinate){.x = x2, .y = y})) {
@@ -460,7 +483,7 @@ bool ssd1306_draw_hline(byte y, byte x1, byte x2, bool flush) {
     ssd1306_pixel_coordinate current = {.y = y}; // x will be set in the loop
     for (byte x = start; x <= end; x++) {
         current.x = x;
-        if (!ssd1306_set_pixel(current, ON, false)) return false;
+        if (!ssd1306_set_pixel(current, on_or_off, false)) return false;
     }
     if (flush) {
         return ssd1306_refresh_page(y / 8);
@@ -468,11 +491,20 @@ bool ssd1306_draw_hline(byte y, byte x1, byte x2, bool flush) {
     return true;
 }
 
+// Horizontal line of width 1 pixel
+bool ssd1306_draw_hline(byte y, byte x1, byte x2, bool flush) {
+    return ssd1306_draw_hline_core(y, x1, x2, flush, PIXEL_SET);
+}
+
+bool ssd1306_clear_hline(byte y, byte x1, byte x2, bool flush) {
+    return ssd1306_draw_hline_core(y, x1, x2, flush, PIXEL_CLEAR);
+}
+
 // vertical line of width 1 pixel
-bool ssd1306_draw_vline(byte x, byte y1, byte y2, bool flush) {
+static inline bool ssd1306_draw_vline_core(byte x, byte y1, byte y2, bool flush, PIXEL_MODE on_or_off) {
     if (!ssd1306_verify_coordinates_are_valid((ssd1306_pixel_coordinate){.x = x, .y = y1}) || 
         !ssd1306_verify_coordinates_are_valid((ssd1306_pixel_coordinate){.x = x, .y = y2})) {
-        printf("invalid coordinates given in ssd1306_draw_vline()\n");
+        printf("invalid coordinates given in ssd1306_draw_vline_core()\n");
         return false;
     }
     byte start = (y1 < y2) ? y1 : y2;
@@ -482,7 +514,7 @@ bool ssd1306_draw_vline(byte x, byte y1, byte y2, bool flush) {
     ssd1306_pixel_coordinate current = {.x = x, .y = 0}; // y will be set in the loop
     for (byte y = start; y <= end; y++) {
         current.y = y;
-        if (!ssd1306_set_pixel(current, ON, false)) return false;
+        if (!ssd1306_set_pixel(current, on_or_off, false)) return false;
         if (dirty_pages[current.y / 8] == false) {
             dirty_pages[current.y / 8] = true;
         }
@@ -495,6 +527,14 @@ bool ssd1306_draw_vline(byte x, byte y1, byte y2, bool flush) {
         }
     }
     return true;
+}
+
+bool ssd1306_draw_vline(byte x, byte y1, byte y2, bool flush) {
+    return ssd1306_draw_vline_core(x, y1, y2, flush, PIXEL_SET);
+}
+
+bool ssd1306_clear_vline(byte x, byte y1, byte y2, bool flush) {
+    return ssd1306_draw_vline_core(x, y1, y2, flush, PIXEL_CLEAR);
 }
 
 bool ssd1306_refresh_page(byte page_to_refresh) {

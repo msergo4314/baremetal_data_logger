@@ -8,14 +8,29 @@
 #include "esp_system.h"
 #include "esp_rtc_time.h"
 
+#include <math.h>
 // custom libraries
 #include "ssd1306_I2C.h"
 #include "mpu6050_I2C.h"
 #include "SD_card_SPI.h"
 
+float xyz_2_norm(float x, float y, float z);
 
 void app_main(void) {
     char SD_string[512] = "";
+
+    MPU6050_ACCELEROMETER_RANGE accel_range = MPU6050_RANGE_2_G;
+    MPU6050_GYROSCOPE_RANGE gyro_range = MPU6050_RANGE_250_DEG;
+
+    float max_accel = 2 * powf(2.0, accel_range);
+    float max_deg_per_sec = 250 * powf(2.0, gyro_range);
+
+    float max_accel_mag = sqrt(3 * (max_accel * max_accel));
+    float max_gyro_mag = sqrt(3 * (max_deg_per_sec * max_deg_per_sec));
+
+    printf("max acceleration is %.2f with max magnitude %.2f\n", max_accel, max_accel_mag);
+    printf("max gyro is %.2f with max deg/sec %.2f\n", max_deg_per_sec, max_gyro_mag);
+
     if (!SD_card_init(5)) {
         printf("Could not init SD card\n");
         return;
@@ -23,12 +38,14 @@ void app_main(void) {
         printf("SD card init successful\n");
     }
     printf("OLED init success: %d\n", (int)ssd1306_init());
-    printf("MPU init success: %d\n", (int)mpu6050_init(MPU6050_RANGE_8_G, MPU6050_RANGE_1000_DEG));
+    printf("MPU init success: %d\n", (int)mpu6050_init(MPU6050_RANGE_2_G, MPU6050_RANGE_500_DEG));
+    
     
     int64_t start = esp_rtc_get_time_us(); // returns time in microseconds 
-    ssd1306_refresh_display();
+    bool success = ssd1306_refresh_display();
     int64_t end = esp_rtc_get_time_us();
     int64_t elapsed = end - start;
+    printf("Testing I2C transmission: %s\n", success ? "success" : "failure");
     float bits = 9288.0; // estimate
     printf("Elapsed time transmitting %.0f bits with I2C bus: %lld us (%.3f sec)\n", bits, elapsed, (elapsed) / 1e6);
     printf("Estimated I2C speed: %.4lf bits/sec\n", bits / (elapsed / 1e6));
@@ -51,7 +68,7 @@ void app_main(void) {
 
     printf("Read of block %d:\n", block_to_read);
     for (int i = 0; i < 512; i++) {
-        printf("%x ", block_data[i]);
+        printf("%02x ", block_data[i]);
     }
     printf("\nIs block 0 empty? -- %s\n", SD_is_block_empty(0) ? "YES" : "NO");
     if (!SD_clear_block(500000)) return;
@@ -124,27 +141,56 @@ void app_main(void) {
     float temperature;
     char disp_str[100] = "";
     free(block_data);
+    if (!ssd1306_write_string_size8x8p("Starting OLED display!", 10, 0, 0, true)) {printf("OLED ERROR\n"); return;}
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    ssd1306_clear_screen();
     while (1) {
+        // ssd1306_clear_screen();
         if (!mpu6050_read_all(&acceleration, &gyro, &temperature)) {
             printf("MPU read_all() error\n");
             return;
         }
-        snprintf(disp_str, sizeof(disp_str), "Temp: %02.1f C",temperature);
-        if (!ssd1306_write_string_size8x8p(disp_str, 0, 0, 0)) {printf("OLED ERROR\n"); return;}
-        snprintf(disp_str, sizeof(disp_str), "X: %+02.1f %+02.1f ", acceleration.x, gyro.x);
-        if (!ssd1306_write_string_size8x8p(disp_str, 0, 0, 2)) {printf("OLED ERROR\n"); return;}
-        snprintf(disp_str, sizeof(disp_str), "Y: %+02.1f %+02.1f ", acceleration.y, gyro.y);
-        if (!ssd1306_write_string_size8x8p(disp_str, 0, 0, 3)) {printf("OLED ERROR\n"); return;}
-        snprintf(disp_str, sizeof(disp_str), "Z: %+02.1f %+02.1f ", acceleration.z, gyro.z);
-        if (!ssd1306_write_string_size8x8p(disp_str, 0, 0, 4)) {printf("OLED ERROR\n"); return;}
+        // printf("MPU data: X: %+02.1f %+02.1f\tY: %+02.1f %+02.1f\tZ: %+02.1f %+02.1f\n", acceleration.x, gyro.x,
+        // acceleration.y, gyro.y, acceleration.z, gyro.z);
+        snprintf(disp_str, sizeof(disp_str), "Temp: %02.1f C    ",temperature);
+        if (!ssd1306_write_string_size8x8p(disp_str, 0, 0, 0, false)) {printf("OLED ERROR\n"); return;}
+
+        snprintf(disp_str, sizeof(disp_str), "X: %+02.1f %+02.1f", acceleration.x, gyro.x);
+        if (!ssd1306_write_string_size8x8p(disp_str, 0, 0, 2, false)) {printf("OLED ERROR\n"); return;}
+        
+        snprintf(disp_str, sizeof(disp_str), "Y: %+02.1f %+02.1f", acceleration.y, gyro.y);
+        if (!ssd1306_write_string_size8x8p(disp_str, 0, 0, 3, false)) {printf("OLED ERROR\n"); return;}
+        
+        snprintf(disp_str, sizeof(disp_str), "Z: %+02.1f %+02.1f", acceleration.z, gyro.z);
+        if (!ssd1306_write_string_size8x8p(disp_str, 0, 0, 4, false)) {printf("OLED ERROR\n"); return;}
+
+        float accel_mag = xyz_2_norm(acceleration.x, acceleration.y, acceleration.z);
+        // accel_mag = (accel_mag < 0.0) ? 0.0 : accel_mag;
+        float gyro_mag = xyz_2_norm(gyro.x, gyro.y, gyro.z);
+
+        snprintf(disp_str, sizeof(disp_str), "|accl| = %02.1f", accel_mag);
+        if (!ssd1306_write_string_size8x8p(disp_str, 0, 0, 5, false)) {printf("OLED ERROR\n"); return;}
+
+        snprintf(disp_str, sizeof(disp_str), "|gyro| = %02.1f", gyro_mag);
+        if (!ssd1306_write_string_size8x8p(disp_str, 0, 0, 6, false)) {printf("OLED ERROR\n"); return;}
+        
+        float ratio = (accel_mag / max_accel_mag);
+        byte scaled_accel = ratio >= 1.0 ? (byte)0 : (byte)((1.0 - ratio) * (SSD1306_OLED_HEIGHT - 1));
+
+        ratio = (gyro_mag / max_gyro_mag);
+        byte scaled_gyro = ratio >= 1.0 ? (byte)0 : (byte)((1.0 - ratio) * (SSD1306_OLED_HEIGHT - 1));
+
+        if (!ssd1306_clear_vline(125, 0, scaled_accel, false)) {printf("OLED ERROR\n"); return;}
+        if (!ssd1306_clear_vline(127, 0, scaled_gyro, false)) {printf("OLED ERROR\n"); return;}
+        if (!ssd1306_draw_vline(125, 63, scaled_accel, false)) {printf("OLED ERROR\n"); return;}
+        if (!ssd1306_draw_vline(127, 63, scaled_gyro, false)) {printf("OLED ERROR\n"); return;}
+
         if (!ssd1306_refresh_display()) {printf("OLED ERROR -- I2C FAILED\n"); return;}
-        // 20 refreshs/sec -- refresh_display() takes about 14 ms
-        vTaskDelay(pdMS_TO_TICKS(50 - 14));
+        vTaskDelay(pdMS_TO_TICKS(50-14));
     }
     return;
 }
 
-void time_fun(void(*function)(void* args), void* args) {
-    function(args);
-    return;
+float xyz_2_norm(float x, float y, float z) {
+    return sqrtf(x * x + y * y + z * z);
 }

@@ -32,7 +32,10 @@
     "my_i2c.h": "c",
     "my_spi.h": "c",
     "xtensa_timer.h": "c",
-    "*.inc": "c"
+    "*.inc": "c",
+    "sd_card_spi.h": "c",
+    "gpio_reg.h": "c",
+    "gpio_struct.h": "c"
   },
   "idf.flashType": "UART"
 }

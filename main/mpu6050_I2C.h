@@ -26,7 +26,7 @@ For example, 0x3B holds X-out high bits, 0x3C holds X-out low bits.
 #define MPU6050_PWR_MGMT_1_REG     0x6B
 #define MPU6050_PWR_MGMT_2_REG     0x6C
 
-typedef int16_t mpu6050_raw_data;
+typedef int16_t mpu6050_raw_data; // MPU accel/gyro/temp registers hold two bytes of signed data
 
 /**
  * Gyroscope full-scale range options in degrees per second.
@@ -54,13 +54,13 @@ typedef enum {
  * Settings 0 and 7 are treated as "disabled."
  */
 typedef enum {
-    MPU6050_DLPF_260_HZ = 0,
-    MPU6050_DLPF_184_HZ = 1,
-    MPU6050_DLPF_94_HZ  = 2,
-    MPU6050_DLPF_44_HZ  = 3,
-    MPU6050_DLPF_21_HZ  = 4,
-    MPU6050_DLPF_10_HZ  = 5,
-    MPU6050_DLPF_5_HZ   = 6,
+    MPU6050_DLPF_260_HZ   = 0,
+    MPU6050_DLPF_184_HZ   = 1,
+    MPU6050_DLPF_94_HZ    = 2,
+    MPU6050_DLPF_44_HZ    = 3,
+    MPU6050_DLPF_21_HZ    = 4,
+    MPU6050_DLPF_10_HZ    = 5,
+    MPU6050_DLPF_5_HZ     = 6,
     MPU6050_DLPF_DISABLED = 7
 } MPU6050_DLPF_FREQ;
 
