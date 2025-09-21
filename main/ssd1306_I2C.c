@@ -2,7 +2,15 @@
 
 // the ssd1306 supports 3 addressing modes: Page, Horizontal, and Vertical
 ADDRESSING_MODE current_mode;
-byte ssd1306GDDRAM_buffer[8][128] = {};
+/*
+instead of reading the GDDRAM to preserve data on pages, 
+we will track it fully in software to save time and reduce complexity
+128 * 8 = 1024 bytes total --> 128 columns and 8 pages
+*/
+byte ssd1306GDDRAM_buffer[SSD1306_NUM_PAGES][SSD1306_OLED_WIDTH] = {0};
+
+// Use a shadow buffer to check which parts of the GDDRAM actually need to be updated
+byte ssd1306GDDRAM_buffer_previous[SSD1306_NUM_PAGES][SSD1306_OLED_WIDTH] = {0};
 /*
 
 When transmitting bytes with I2C, we have two options for the OLED -- a command or data
@@ -32,6 +40,7 @@ Bit D0 (the LSB) is written at the top and D7 at the bottom
 */
 
 // helpers not to be used outside of this file
+static inline bool ssd1306_show_RAM_only(void);
 static byte* get_bitmap_from_ascii(byte character);
 static inline bool ssd1306_write_command(byte command_code);
 static inline bool ssd1306_write_command2(byte command_code, byte command_argument);
@@ -42,35 +51,33 @@ static inline bool ssd1306_draw_line_core(ssd1306_pixel_coordinate p1, ssd1306_p
 static inline bool ssd1306_draw_hline_core(byte y, byte x1, byte x2, bool flush, PIXEL_MODE on_or_off);
 static inline bool ssd1306_draw_vline_core(byte x, byte y1, byte y2, bool flush, PIXEL_MODE on_or_off);
 static inline bool ssd1306_draw_rectangle_core(ssd1306_pixel_coordinate origin, byte width_px, byte height_px,
-                                                byte border_thickness_px, bool fill, PIXEL_MODE on_or_off);
+                                                byte border_thickness_px, bool fill, PIXEL_MODE on_or_off, bool flush);
 
 static bool ssd1306_set_page_address(byte page);
 static bool ssd1306_set_column_address(byte column);
 static bool ssd1306_set_column_start_and_end(byte column_start, byte column_end);
 static bool ssd1306_nop(void);
-static bool ssd1306_set_addressing_mode(const ADDRESSING_MODE mode);
+static bool ssd1306_set_addressing_mode(ADDRESSING_MODE mode);
 
 // shows what is in GDDRAM on the chip and nothing else
-static bool ssd1306_show_RAM_only(void) {
+static inline bool ssd1306_show_RAM_only(void) {
     // A4 is the command for entire display ON with RAM contents showing
     return ssd1306_write_command(0xA4);
 }
 
-static bool ssd1306_set_page_address(byte page) {
-    if (current_mode != PAGE) {
-        printf("Must be in PAGE mode\n");
-        return false;
-    }
+// NOTE: the display MUST be in PAGE mode!
+static inline bool ssd1306_set_page_address(byte page) {
     // command for setting the page in page address mode is 0xB0. However, it is OR'd with page (0-7)
-    // the actual command thus ranges from B0 to B7
-    return ssd1306_write_command(0xB0 | page);
+    // the actual command thus ranges from B0 to B7, so we only keep the 3 LSBs of the page byte (in case it's > 7)
+    return ssd1306_write_command(0xB0 | (page & 0x07));
 }
 
-static bool ssd1306_set_column_address(byte column) {
-    if (current_mode != PAGE) {
-        printf("Must be in PAGE mode\n");
-        return false;
-    }
+// NOTE: the display MUST be in PAGE mode!
+static inline bool ssd1306_set_column_address(byte column) {
+    // if (current_mode != PAGE) {
+    //     printf("Must be in PAGE mode\n");
+    //     return false;
+    // }
     // address is sent in two bytes with each byte being one nibble (4 bits)
     return ssd1306_write_command2(column & 0xF, ((column >> 4) | 0x10));
 }
@@ -94,7 +101,7 @@ static inline bool ssd1306_write_bytes(const byte* stream_of_bytes, size_t numbe
     return I2C_send_byte_stream(SSD1306_ADDRESS, stream_of_bytes, number_of_bytes, WRITE, start, stop);
 }
 
-static bool ssd1306_set_addressing_mode(const ADDRESSING_MODE mode) {
+static bool ssd1306_set_addressing_mode(ADDRESSING_MODE mode) {
     byte lower_bits = 0x0;
     // the mode we want will determine what the last two bits of the command are
     switch(mode) {
@@ -115,7 +122,7 @@ static bool ssd1306_set_addressing_mode(const ADDRESSING_MODE mode) {
     }
     // command is 0x20 for changing the addressing mode. Follow with the desired mode.
     // The first 6 bits of the third byte are X (don't care) so here they are 0s
-    return ssd1306_write_command2(0x20, (byte)lower_bits);
+    return ssd1306_write_command2(0x20, lower_bits);
 }
 
 // setup to make sure the SSD1306 is ready to use
@@ -219,19 +226,47 @@ bool ssd1306_display_off(void) {
 
 // displays the contents of the INTERNAL GDDRAM (the 2D array)
 bool ssd1306_refresh_display(void) {
+    
+    // see which pages need to be updated by checking the previous GDDRAM buffer state
+    bool pages_to_update[SSD1306_NUM_PAGES];
+    bool exit_early = true;
+    for (byte page = 0; page < SSD1306_NUM_PAGES; page++) {
+        if (memcmp(ssd1306GDDRAM_buffer_previous, ssd1306GDDRAM_buffer, sizeof(ssd1306GDDRAM_buffer)) == 0) {
+            // the GDDRAM image for this page has not changed since the last display update
+            pages_to_update[page] = false;
+        } else {
+            pages_to_update[page] = true;
+            exit_early = false;
+        }
+    }
+    if (exit_early) {
+        return true;
+    }
+
     if (current_mode != PAGE) {
-        if (!ssd1306_set_addressing_mode(PAGE)) return false;
+        if (!ssd1306_set_addressing_mode(PAGE)) {
+            printf("failed to set addressing mode to PAGE in ssd1306_refresh_display()\n");
+            return false;
+        }
     }
     // we will write the internal memory for each page instead of all at once for reliability
     // this is because I2C could fail if we hold the bus too long (not likely to happen though)
-    for (byte page = 0; page < 8; page++) {
+    // this is also better than doing the whole memory because we normally only need to update a few pages at a time
+
+    for (byte page = 0; page < SSD1306_NUM_PAGES; page++) {
+        if (pages_to_update[page] == false) {
+            // skip pages that haven't changed
+            continue;
+        }
         ssd1306_set_page_address(page);
         ssd1306_set_column_address(0);
-        byte buffer[129];
+        byte buffer[SSD1306_OLED_WIDTH + 1];
         buffer[0] = SSD1306_CONTROL_BYTE(0, 1);
         memcpy(&buffer[1], &(ssd1306GDDRAM_buffer[page][0]), SSD1306_OLED_WIDTH);
         if (!ssd1306_write_bytes(buffer, sizeof(buffer), true, true)) return false;
     }
+    // set the previous image to the current image
+    memcpy(ssd1306GDDRAM_buffer_previous, ssd1306GDDRAM_buffer, sizeof(ssd1306GDDRAM_buffer));
     return ssd1306_show_RAM_only();
 }
 // clears screen by setting GDDRAM to 0 and calling ssd1306_refresh_display()
@@ -271,13 +306,12 @@ bool ssd1306_write_string_size8x8p(const char* string_to_print, byte x_offset_pi
     // printf("Trying to write string %s at internal address of page %d and column %d\n", string_to_print, page_address, x_offset);
     byte current_page = start_page;
     byte current_column = x_offset_pixels_left;
-    bool page_dirty[SSD1306_NUM_PAGES] = {false};
 
     for (int i = 0; i < len; i++) {
         // grab 8 byte blocks for each character
         const byte* glyph = (byte*)get_bitmap_from_ascii((byte)string_to_print[i]);
         // write the 8 byte block to GDDRAM buffer
-        if (current_column + 8 > SSD1306_OLED_WIDTH - x_offset_pixels_right) {
+        if (current_column + SSD1306_NUM_PAGES > SSD1306_OLED_WIDTH - x_offset_pixels_right) {
             // if the character would be printed offscreen or past the right offset, wrap to next page and reset column
             current_page++;
             if (current_page >= SSD1306_NUM_PAGES) {
@@ -286,22 +320,13 @@ bool ssd1306_write_string_size8x8p(const char* string_to_print, byte x_offset_pi
             current_column = x_offset_pixels_left; // move column back to offset
         }
         memcpy(&(ssd1306GDDRAM_buffer[current_page][current_column]), glyph, 8);
-        page_dirty[current_page] = true;
-        current_column += 8;
+        current_column += SSD1306_NUM_PAGES;
         // printf("copied 8 bytes into column %d and row %d of the buffer\n", page_address, x_offset + 8 * i);
     }
     if (!flush) {
         return true;
     }
-    // Refresh only the modified pages
-    for (int p = 0; p < SSD1306_NUM_PAGES; p++) {
-        if (page_dirty[p]) {
-            if (!ssd1306_refresh_page(p)) {
-                return false;
-            }
-        }
-    }
-    return true;
+    return ssd1306_refresh_display();
 }
 
 /*
@@ -311,7 +336,7 @@ height determines y distance in pixels including the origin
 always draws down and to the right
 */
 
-static inline bool ssd1306_draw_rectangle_core(ssd1306_pixel_coordinate origin, byte width_px, byte height_px, byte border_thickness_px, bool fill, PIXEL_MODE on_or_off) {
+static inline bool ssd1306_draw_rectangle_core(ssd1306_pixel_coordinate origin, byte width_px, byte height_px, byte border_thickness_px, bool fill, PIXEL_MODE on_or_off, bool flush) {
     byte starting_page = origin.y / 8;
     byte vertical_bit = origin.y % 8;
     byte starting_column = origin.x;
@@ -330,50 +355,38 @@ static inline bool ssd1306_draw_rectangle_core(ssd1306_pixel_coordinate origin, 
         return false;
     }
     if (fill) {
-        byte tracker = 0;
-        byte pages_to_refresh = 1;
         for (byte y = origin.y; y < origin.y + height_px; y++) {
-            if (!ssd1306_draw_hline(y, origin.x, origin.x + width_px - 1, false)) return false;
-            tracker++;
-            if (tracker == 8) { // 8 pixels per page
-                tracker = 0;
-                pages_to_refresh++;
-            }
+            if (!ssd1306_draw_hline_core(y, origin.x, origin.x + width_px - 1, false, on_or_off)) return false;
         }
-
-        for (byte i = 0; i < pages_to_refresh; i++) {
-            byte page_to_refresh = starting_page + i;
-            if (page_to_refresh >= SSD1306_NUM_PAGES) break; // don't exceed 7
-            if (!ssd1306_refresh_page(page_to_refresh)) return false;
-        }
-        return true;
     } else {
         // Draw borders of thickness border_thickness_px
         for (byte t = 0; t < border_thickness_px; t++) {
             // Top border
-            ssd1306_draw_hline(origin.y + t, origin.x, origin.x + width_px - 1, false);
+            ssd1306_draw_hline_core(origin.y + t, origin.x, origin.x + width_px - 1, false, on_or_off);
             // Bottom border
-            ssd1306_draw_hline(origin.y + height_px - t - 1, origin.x, origin.x + width_px - 1, false);
+            ssd1306_draw_hline_core(origin.y + height_px - t - 1, origin.x, origin.x + width_px - 1, false, on_or_off);
             // Left border
-            ssd1306_draw_vline(origin.x + t, origin.y, origin.y + height_px - 1, false);
+            ssd1306_draw_vline_core(origin.x + t, origin.y, origin.y + height_px - 1, false, on_or_off);
             // Right border
-            ssd1306_draw_vline(origin.x + width_px - t - 1, origin.y, origin.y + height_px - 1, false);
+            ssd1306_draw_vline_core(origin.x + width_px - t - 1, origin.y, origin.y + height_px - 1, false, on_or_off);
         }
     }
-    // Push buffer to display (you could optimize to refresh only affected pages)
-    return ssd1306_refresh_display();
+    if (flush) {
+        return ssd1306_refresh_display();
+    }
+    return true;
 }
 
-bool ssd1306_draw_rectangle(ssd1306_pixel_coordinate origin, byte width_px, byte height_px, byte border_thickness_px, bool fill) {
-    return ssd1306_draw_rectangle_core(origin, width_px, height_px, border_thickness_px, fill, PIXEL_SET);
+bool ssd1306_draw_rectangle(ssd1306_pixel_coordinate origin, byte width_px, byte height_px, byte border_thickness_px, bool fill, bool flush) {
+    return ssd1306_draw_rectangle_core(origin, width_px, height_px, border_thickness_px, fill, PIXEL_SET, flush);
 }
 
-bool ssd1306_clear_rectangle(ssd1306_pixel_coordinate origin, byte width_px, byte height_px) {
-    return ssd1306_draw_rectangle_core(origin, width_px, height_px, 1, true, PIXEL_SET);
+bool ssd1306_clear_rectangle(ssd1306_pixel_coordinate origin, byte width_px, byte height_px, bool flush) {
+    return ssd1306_draw_rectangle_core(origin, width_px, height_px, 1, true, PIXEL_CLEAR, flush);
 }
 
 bool ssd1306_set_pixel_xy(byte x, byte y, PIXEL_MODE on_or_off, bool flush) {
-    const ssd1306_pixel_coordinate coords = {x, y};
+    ssd1306_pixel_coordinate coords = {x, y};
     return ssd1306_set_pixel(coords, on_or_off, flush);
 }
 
@@ -410,7 +423,22 @@ bool ssd1306_set_pixel(ssd1306_pixel_coordinate pixel_coords, PIXEL_MODE on_or_o
         // printf("Byte value is now: %d\n", (int)ssd1306GDDRAM_buffer[page][column]);
     }
     // update the screen only if specified
-    if (flush) return ssd1306_refresh_page(page);
+    if (flush)  {
+        if (!current_mode == PAGE) {
+            if (!ssd1306_set_addressing_mode(PAGE)) {return false;}
+        }
+        if (!ssd1306_set_page_address(page)) {return false;}
+        if (!ssd1306_set_column_address(column)) {return false;}
+        // transmit one byte of data for the one pixel
+
+
+        byte buffer[2];
+        buffer[0] =SSD1306_CONTROL_BYTE(0, 1); // data control byte
+        buffer[1] = ssd1306GDDRAM_buffer[page][column];
+        if (!ssd1306_write_bytes(buffer, sizeof(buffer), true, true)) return false;
+        ssd1306GDDRAM_buffer_previous[page][column] = ssd1306GDDRAM_buffer[page][column];
+        return true;
+    }
     return true;
 }
 
@@ -425,9 +453,9 @@ static inline bool ssd1306_draw_line_core(ssd1306_pixel_coordinate p1, ssd1306_p
     int x2 = p2.x, y2 = p2.y;
 
     if (x1 == x2) {
-        return ssd1306_draw_vline(x1, y1, y2, flush);
+        return ssd1306_draw_vline_core(x1, y1, y2, flush, on_or_off);
     } else if (y1 == y2) {
-        return ssd1306_draw_hline(y1, x1, x2, flush);
+        return ssd1306_draw_hline_core(y1, x1, x2, flush, on_or_off);
     }
 
     // Implement Bresenham's line algorithm (from wikipedia...)
@@ -449,8 +477,10 @@ static inline bool ssd1306_draw_line_core(ssd1306_pixel_coordinate p1, ssd1306_p
         if (e2 >= dy) { err += dy; x1 += sx; }
         if (e2 <= dx) { err += dx; y1 += sy; }
     }
-
-    return ssd1306_refresh_display(); // Use partial page update for better speed
+    if (flush) {
+        return ssd1306_refresh_display(); // Use partial page update for better speed
+    }
+    return true;
 }
 
 bool ssd1306_draw_line(ssd1306_pixel_coordinate p1, ssd1306_pixel_coordinate p2, bool flush) {
@@ -460,13 +490,9 @@ bool ssd1306_draw_line(ssd1306_pixel_coordinate p1, ssd1306_pixel_coordinate p2,
 bool ssd1306_clear_line(ssd1306_pixel_coordinate p1, ssd1306_pixel_coordinate p2, bool flush) {
     return ssd1306_draw_line_core(p1, p2, flush, PIXEL_CLEAR);
 }
-/**
- * @brief Reset (clear) one page in the internal GDDRAM buffer.
- *
- * @param page Page index (0–7).
- */
-bool ssd1306reset_page(byte page) {
-    memset(ssd1306GDDRAM_buffer[page], 0x0, 128);
+
+bool ssd1306_clear_page(byte page) {
+    memset(ssd1306GDDRAM_buffer[page], 0x00, SSD1306_OLED_WIDTH);
     return ssd1306_refresh_page(page);
 }
 
@@ -509,22 +535,14 @@ static inline bool ssd1306_draw_vline_core(byte x, byte y1, byte y2, bool flush,
     }
     byte start = (y1 < y2) ? y1 : y2;
     byte end   = (y1 > y2) ? y1 : y2;
-    bool dirty_pages[SSD1306_NUM_PAGES] = {false};
 
     ssd1306_pixel_coordinate current = {.x = x, .y = 0}; // y will be set in the loop
     for (byte y = start; y <= end; y++) {
         current.y = y;
         if (!ssd1306_set_pixel(current, on_or_off, false)) return false;
-        if (dirty_pages[current.y / 8] == false) {
-            dirty_pages[current.y / 8] = true;
-        }
     }
     if (flush) {
-        for (byte i = 0; i < SSD1306_NUM_PAGES; i++) {
-            if (dirty_pages[i]) {
-                ssd1306_refresh_page(i);
-            }
-        }
+        return ssd1306_refresh_display();
     }
     return true;
 }
@@ -542,24 +560,22 @@ bool ssd1306_refresh_page(byte page_to_refresh) {
         printf("Page must be in range 0-%d\n", SSD1306_NUM_PAGES - 1);
         return false; // ssd1306 has 8 pages (0–7)
     }
+    if (memcmp(ssd1306GDDRAM_buffer_previous[page_to_refresh], ssd1306GDDRAM_buffer[page_to_refresh], SSD1306_OLED_WIDTH) == 0) {
+        // no work needs to be done
+        return true;
+    }
     if (current_mode != PAGE) {
         if (!ssd1306_set_addressing_mode(PAGE)) return false;
     }
     // set the column to 0 and page to the desired page. Then transmit data from the GDDRAM buffer
-
-    /*
-    could optimize this by making this one transmission without two START/STOP conditions
-    */
-    // ssd1306_set_page_address(page_to_refresh);
-    // ssd1306_set_column_address(0);
-
-    byte transmission[] = {SSD1306_CONTROL_BYTE(1, 0), 0xB0 | page_to_refresh,SSD1306_CONTROL_BYTE(0, 0), 0, 0x10};
+    byte transmission[] = {SSD1306_CONTROL_BYTE(1, 0), 0xB0 | page_to_refresh, SSD1306_CONTROL_BYTE(0, 0), 0, 0x10};
     if (!ssd1306_write_bytes(transmission, sizeof(transmission), true, true)) return false;
 
-    byte buffer[129];
+    byte buffer[SSD1306_OLED_WIDTH + 1];
     buffer[0] =SSD1306_CONTROL_BYTE(0, 1); // data control byte
-    memcpy(&buffer[1], &ssd1306GDDRAM_buffer[page_to_refresh][0], SSD1306_OLED_WIDTH);
+    memcpy(&buffer[1], &(ssd1306GDDRAM_buffer[page_to_refresh]), SSD1306_OLED_WIDTH);
     if (!ssd1306_write_bytes(buffer, sizeof(buffer), true, true)) return false;
+    memcpy(&(ssd1306GDDRAM_buffer_previous[page_to_refresh]), &(ssd1306GDDRAM_buffer[page_to_refresh]), SSD1306_OLED_WIDTH);
     return true;
 }
 

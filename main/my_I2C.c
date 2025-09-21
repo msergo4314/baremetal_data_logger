@@ -227,7 +227,7 @@ static bool I2C_write_byte(byte byte_to_write) {
     NOTE: SDA can only transition when SCL is LOW and must be held when SCL is HIGH
     write MSBs first --> 7 down to 0
     SCL MUST be LOW when this function is called
-    */ 
+    */
     for(int i = 7; i >= 0; i--) {
         // bitwise AND with left shifted 1 to pick a single bit
         (byte_to_write & (1 << i)) ? sda_high() : sda_low(); // write SDA HIGH/LOW depending on the bits

@@ -43,15 +43,6 @@ typedef enum {
     VERTICAL
 } ADDRESSING_MODE;
 
-extern ADDRESSING_MODE current_mode;
-
-/*
-instead of reading the GDDRAM to preserve data on pages, 
-we will track it fully in software to save time and reduce complexity
-128 * 8 = 1024 bytes total --> 128 columns and 8 pages
-*/
-extern byte ssd1306GDDRAM_buffer[8][128];
-
 typedef struct pixel_coord {
     // the OLED measures 64x128 pixels so a byte is plenty of space for X and Y
     byte x;
@@ -120,7 +111,9 @@ bool ssd1306_display_off(void);
 /**
  * @brief Refresh the display with the contents of the internal GDDRAM buffer.
  *
- * Sends all 8 pages (8×128 = 1024 bytes) to the SSD1306.
+ * Updates only the pages that need to be updated using an internal shadow buffer.
+ * Alyways updates at least 128 bytes (1 page), unless the GDDRAM buffer has not changed at all from the last invokation
+ * If all pages need to be updated (the whole screen), 1024 bytes are sent
  * @return True on success, else false
  */
 bool ssd1306_refresh_display(void);
@@ -132,6 +125,13 @@ bool ssd1306_refresh_display(void);
  * @return True on success, else false
  */
 bool ssd1306_clear_screen(void);
+
+/**
+ * @brief Reset (clear) one page in the internal GDDRAM buffer.
+ *
+ * @param page Page index (0–7).
+ */
+bool ssd1306_clear_page(byte page);
 
 /**
  * @brief Write a string of ASCII characters using the 8×8 font.
@@ -190,8 +190,8 @@ bool ssd1306_verify_coordinates_are_valid(ssd1306_pixel_coordinate coordinate);
  *
  * Uses Bresenham’s line algorithm.
  *
- * @param start Starting coordinate.
- * @param end Ending coordinate.
+ * @param p1 Starting coordinate.
+ * @param p2 Ending coordinate.
  * @param flush If true, updates affected pages after drawing.
  * @return True on success, else false
  */
@@ -201,9 +201,10 @@ bool ssd1306_draw_line(ssd1306_pixel_coordinate p1, ssd1306_pixel_coordinate p2,
  * @brief Draw a straight line of cleared pixlels between two points.
  *
  * Uses Bresenham’s line algorithm.
+ * Both the start and end coordinates are included in the line
  *
- * @param start Starting coordinate.
- * @param end Ending coordinate.
+ * @param p1 Starting coordinate.
+ * @param p2 Ending coordinate.
  * @param flush If true, updates affected pages after drawing.
  * @return True on success, else false
  */
@@ -212,6 +213,8 @@ bool ssd1306_clear_line(ssd1306_pixel_coordinate p1, ssd1306_pixel_coordinate p2
 /**
  * @brief Draw a horizontal line.
  *
+ * Both the start and end pixels are included in the line
+ * 
  * @param y Y-coordinate.
  * @param x1 Starting X-coordinate.
  * @param x2 Ending X-coordinate.
@@ -222,6 +225,8 @@ bool ssd1306_draw_hline(byte y, byte x1, byte x2, bool flush);
 
 /**
  * @brief Draw a horizontal line of cleared pixels.
+ * 
+ * Both the start and end pixels are included in the line
  *
  * @param y Y-coordinate.
  * @param x1 Starting X-coordinate.
@@ -234,6 +239,8 @@ bool ssd1306_clear_hline(byte y, byte x1, byte x2, bool flush);
 /**
  * @brief Draw a vertical line.
  *
+ * Both the start and end pixels are included in the line
+ * 
  * @param x X-coordinate.
  * @param y1 Starting Y-coordinate.
  * @param y2 Ending Y-coordinate.
@@ -244,6 +251,8 @@ bool ssd1306_draw_vline(byte x, byte y1, byte y2, bool flush);
 
 /**
  * @brief Draw a vertical line of cleared pixels.
+ *
+ * Both the start and end pixels are included in the line
  *
  * @param x X-coordinate.
  * @param y1 Starting Y-coordinate.
@@ -256,27 +265,35 @@ bool ssd1306_clear_vline(byte x, byte y1, byte y2, bool flush);
 /**
  * @brief Draw a rectangle.
  *
- * Can be filled or outlined with specified thickness.
+ * Can be filled or outlined with specified thickness. The rectangle starts at the origin,
+ * and the width and height dimensions determine the number of pixels coloured. For example, a
+ * rectangle at the origin with a width of 20 pixels and a height of 30 will be drawn for pixels 0-19 (inclusive)
+ * along the x axis and 0-29 for the vertical pixels.
+ * If a border thickness is selected, it will be drawn inwards so as not to affect the length and width
  *
  * @param origin Top-left corner of the rectangle.
  * @param width_px Rectangle width in pixels.
  * @param height_px Rectangle height in pixels.
  * @param border_thickness_px Outline thickness in pixels (ignored if filled).
  * @param fill If true, fill rectangle, else draw outline.
+ * @param flush If true, immediately update the display to show the rectangle
  * @return True on success, else false
  */
-bool ssd1306_draw_rectangle(ssd1306_pixel_coordinate origin, byte width_px, byte height_px, byte border_thickness_px, bool fill);
+bool ssd1306_draw_rectangle(ssd1306_pixel_coordinate origin, byte width_px, byte height_px, byte border_thickness_px, bool fill, bool flush);
 
 /**
- * @brief Draw a rectangle of cleared pixels.
+ * @brief Draw a rectangle of cleared pixels, and clear everything in the rectangle
  *
- * used to "erase" a block on the display.
+ * used to "erase" a block on the display. The rectangle starts at the origin,
+ * and the width and height dimensions determine the number of pixels cleared. For example, a
+ * rectangle at (0,0) with a width of 20 pixels will be drawn for pixels 0-19 (inclusive) along the x axis.
  *
  * @param origin Top-left corner of the rectangle.
  * @param width_px Rectangle width in pixels.
  * @param height_px Rectangle height in pixels.
+ * @param flush If true, immediately update the display to show the rectangle
  * @return True on success, else false
  */
-bool ssd1306_clear_rectangle(ssd1306_pixel_coordinate origin, byte width_px, byte height_px);
+bool ssd1306_clear_rectangle(ssd1306_pixel_coordinate origin, byte width_px, byte height_px, bool flush);
 
 #endif // ssd1306_I2C_H
