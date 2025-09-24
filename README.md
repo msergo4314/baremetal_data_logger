@@ -17,6 +17,8 @@ These are the sensors I used. The project is less about the sensors than interfa
 
 -4 GB SPI SD card. [link](https://www.adafruit.com/product/6039). The STEMMA cables are for I2C, so this breakout board can't use them. I had to solder in the provided header pins which makes the project a little messier.
 
+[final design layout](https://github.com/msergo4314/baremetal_data_logger/blob/master/images/demo.jpg)
+
 ## How to use
 
 You will need the ESP-idf since this an ESP-idf project file. I used the VScode extension, which works nicely. You just need the files in the main folder and the rest will be done automatically. I specifically chose to use the ESP-idf environment instead of the Arduino IDE because it is closer to proffessional development. Additionally, ESP-idf exclusively uses C, while the Arduino IDE uses a mix of C/C++. I have only ever used C and prefer it, so ESP-idf is more attractive in that way. 
