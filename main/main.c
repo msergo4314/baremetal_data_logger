@@ -20,8 +20,8 @@ float xyz_2_norm(float x, float y, float z);
 byte accel_to_scaled_pixel(float accleration_reading, float max_accel_magnitude);
 byte gyro_to_scaled_pixel(float gyro_reading, float max_gyro_magnitude);
 
-#define graph_x_axis_length_px 51
-#define graph_y_axis_height_px 38
+#define GRAPH_X_AXIS_LENGTH_PX 51
+#define GRAPH_y_AXIS_HEIGHT_PX 38
 
 void app_main(void) {
     char SD_string[512] = "";
@@ -41,9 +41,9 @@ void app_main(void) {
     if (!SD_card_init(5)) {
         printf("Could not init SD card\n");
         return;
-    } else {
-        printf("SD card init successful\n");
     }
+    printf("SPI clock speed: %d Hz\n", SPI_get_clock_speed_Hz());
+    printf("SD card init successful\n");
     printf("OLED init success: %d\n", (int)ssd1306_init());
     printf("MPU init success: %d\n", (int)mpu6050_init(accel_range, gyro_range));
     
@@ -117,15 +117,14 @@ void app_main(void) {
     printf("\nSetting block 500 000 to \"Hello world!\"...\n");
     strcpy(SD_string, "Hello World!");
     if (!SD_write_block(500000, (const byte*)SD_string)) {free(block_data); return;}
-    char testing_str[512];
+    char testing_str[512] = "INITIAL_STATE";
     if (!SD_read_block(500000, (byte*)testing_str)) {free(block_data); return;}
     printf("Block 500 000 says: %s\n", testing_str);
-    
-    byte first[512] = {0};
-    first[0] = 0xAA;
 
+    memset(SD_string, 0x0, sizeof(SD_string)); // reset the string by clearing the old bytes
+    SD_string[0] = (char)0xAA;
     for (int i = 0; i < 5; i++) {
-        memcpy(&(block_data[512* i]), first, sizeof(first));
+        memcpy(&(block_data[512* i]), SD_string, sizeof(SD_string));
     }
     start = esp_rtc_get_time_us();
     if (!SD_write_many_blocks(500001, block_data, 5)) {free(block_data); printf("Write failure\n"); return;}
@@ -133,25 +132,29 @@ void app_main(void) {
     elapsed = end - start;
     printf("5 block write took %.4f ms\n", elapsed / 1000.0);
     // printf("Wrote 5 blocks successfully. Reading 6 blocks:\n");
-    byte *six_blocks = malloc(512 * 6);
-    if (!SD_read_many_blocks(500000, six_blocks, 6)) {free(block_data); free(six_blocks); printf("Read failure\n"); return;}
+    if (!SD_read_many_blocks(500000, block_data, 6)) {free(block_data); printf("Read failure\n"); return;}
 
     // for (int i=0; i < 6; i++) {
     //     printf("Block %d data:\n", block_to_read + i);
     //     for(int j = 0; j < 512; j++) {
-    //         printf("%02x ", six_blocks[512 * i + j]);
-    //         if (j == 511) {
-    //             printf("\n");
-    //         }
+    //         printf("%02x ", block_data[512 * i + j]);
     //     }
+    //     printf("\n");
     // }
+    free(block_data);
     if(!SD_clear_many_blocks(500000, 6)) return;
-    free(six_blocks);
+    for (int i = 0; i < 6; i++) {
+        int block_to_check = 500000 + i;
+        if (!SD_is_block_empty(block_to_check)) {
+            printf("Block %d was not cleared properly!\n", block_to_check);
+        }
+    }
+    printf("Cleared all used blocks\n");
 
     mpu6050_xyz_data acceleration, gyro;
     float temperature;
     char disp_str[100] = "";
-    free(block_data);
+    
     if (!ssd1306_write_string_size8x8p("Starting OLED display!", 10, 0, 0, true)) {printf("OLED ERROR\n"); return;}
     vTaskDelay(pdMS_TO_TICKS(750));
     start = esp_rtc_get_time_us();
@@ -163,16 +166,16 @@ void app_main(void) {
     TickType_t last_wake_time = xTaskGetTickCount();
     const TickType_t period = pdMS_TO_TICKS(50);
 
-    float accel_window[graph_x_axis_length_px - 1] = {-1.0};
-    float gyro_window[graph_x_axis_length_px - 1] = {-1.0};
+    float accel_window[GRAPH_X_AXIS_LENGTH_PX - 1] = {-1.0};
+    float gyro_window[GRAPH_X_AXIS_LENGTH_PX - 1] = {-1.0};
 
 
     // draw graph axes for accel/gyro magnitudes
-    ssd1306_draw_hline(63, 0, graph_x_axis_length_px, false);
-    ssd1306_draw_hline(63, graph_x_axis_length_px + 20, 2 * graph_x_axis_length_px + 20, false);
+    ssd1306_draw_hline(63, 0, GRAPH_X_AXIS_LENGTH_PX, false);
+    ssd1306_draw_hline(63, GRAPH_X_AXIS_LENGTH_PX + 20, 2 * GRAPH_X_AXIS_LENGTH_PX + 20, false);
 
-    ssd1306_draw_vline(0, 63, 63 - graph_y_axis_height_px, false);
-    ssd1306_draw_vline(graph_x_axis_length_px + 20, 63, 63 - graph_y_axis_height_px, false);
+    ssd1306_draw_vline(0, 63, 63 - GRAPH_y_AXIS_HEIGHT_PX, false);
+    ssd1306_draw_vline(GRAPH_X_AXIS_LENGTH_PX + 20, 63, 63 - GRAPH_y_AXIS_HEIGHT_PX, false);
     ssd1306_refresh_display();
 
     while (1) {
@@ -207,12 +210,12 @@ void app_main(void) {
         // if (!ssd1306_write_string_size8x8p(disp_str, 0, 0, 7, false)) {printf("OLED ERROR\n"); return;}
         
         // update the moving windows
-        insert_into_window(accel_mag, accel_window, graph_x_axis_length_px - 1);
-        insert_into_window(gyro_mag, gyro_window, graph_x_axis_length_px - 1);
+        insert_into_window(accel_mag, accel_window, GRAPH_X_AXIS_LENGTH_PX - 1);
+        insert_into_window(gyro_mag, gyro_window, GRAPH_X_AXIS_LENGTH_PX - 1);
 
         // Draw acceleration graph
         ssd1306_pixel_coordinate coord_1, coord_2;
-        for (size_t i = 0; i < graph_x_axis_length_px - 2; i++) {
+        for (size_t i = 0; i < GRAPH_X_AXIS_LENGTH_PX - 2; i++) {
             if (accel_window[i] != -1.0 && accel_window[i + 1] != -1.0) {
                 byte y0 = accel_to_scaled_pixel(accel_window[i], max_accel_mag);
                 byte y1 = accel_to_scaled_pixel(accel_window[i + 1], max_accel_mag);
@@ -227,13 +230,13 @@ void app_main(void) {
         ssd1306_set_pixel(coord_2, PIXEL_SET, false);
 
         // Draw gyro graph
-        for (size_t i = 0; i < graph_x_axis_length_px - 2; i++) {
+        for (size_t i = 0; i < GRAPH_X_AXIS_LENGTH_PX - 2; i++) {
             if (gyro_window[i] != -1.0 && gyro_window[i + 1] != -1.0) {
                 byte y0 = gyro_to_scaled_pixel(gyro_window[i], max_gyro_mag);
                 byte y1 = gyro_to_scaled_pixel(gyro_window[i + 1], max_gyro_mag);
-                coord_1.x = i + 21 + graph_x_axis_length_px;
+                coord_1.x = i + 21 + GRAPH_X_AXIS_LENGTH_PX;
                 coord_1.y = y0;
-                coord_2.x = i + 22 + graph_x_axis_length_px;
+                coord_2.x = i + 22 + GRAPH_X_AXIS_LENGTH_PX;
                 coord_2.y = y1;
                 ssd1306_draw_line(coord_1, coord_2, false);
             }
@@ -242,19 +245,19 @@ void app_main(void) {
         ssd1306_set_pixel(coord_2, PIXEL_SET, false);
 
         if (!ssd1306_refresh_display()) {printf("OLED ERROR -- I2C FAILED\n"); return;}
+        // clear the internal GDDRAM but don't update the display yet to get ready for the next iteration
+        coord_1.x = 1;
+        coord_1.y = 63 - GRAPH_y_AXIS_HEIGHT_PX;
+        // uint64_t start_2 = esp_rtc_get_time_us();
+        ssd1306_clear_rectangle(coord_1, GRAPH_X_AXIS_LENGTH_PX, GRAPH_y_AXIS_HEIGHT_PX, false);
+        coord_2.x = GRAPH_X_AXIS_LENGTH_PX + 21;
+        coord_2.y = 63 - GRAPH_y_AXIS_HEIGHT_PX;
+        ssd1306_clear_rectangle(coord_2, GRAPH_X_AXIS_LENGTH_PX, GRAPH_y_AXIS_HEIGHT_PX, false);
+        // printf("time for drawing clear rectangles: %.2f ms\n", (float)((esp_rtc_get_time_us() - start_2) / 1000.0));
+
         //20 Hz --> 50 ms delay between loops
         // printf("Time to do OLED operations in ms: %.2f\n", (float)((esp_rtc_get_time_us() - start) / 1000));
         xTaskDelayUntil(&last_wake_time, period);
-
-        // clear the internal GDDRAM but don't update the display yet to get ready for the next iteration
-        coord_1.x = 1;
-        coord_1.y = 63 - graph_y_axis_height_px;
-        // uint64_t start_2 = esp_rtc_get_time_us();
-        ssd1306_clear_rectangle(coord_1, graph_x_axis_length_px, graph_y_axis_height_px, false);
-        coord_2.x = graph_x_axis_length_px + 21;
-        coord_2.y = 63 - graph_y_axis_height_px;
-        ssd1306_clear_rectangle(coord_2, graph_x_axis_length_px, graph_y_axis_height_px, false);
-        // printf("time for drawing clear rectangles: %.2f ms\n", (float)((esp_rtc_get_time_us() - start_2) / 1000.0));
     }
     return;
 }
@@ -285,7 +288,7 @@ byte accel_to_scaled_pixel(float accleration_reading, float max_accel_magnitude)
     // minimum value will be pixel 62 (just above the x axis)
     byte scaled_accel = 62;
 
-    scaled_accel -= (byte)((ratio) * (graph_y_axis_height_px - 1));
+    scaled_accel -= (byte)((ratio) * (GRAPH_y_AXIS_HEIGHT_PX - 1));
     return scaled_accel;
 }
 
@@ -296,6 +299,6 @@ byte gyro_to_scaled_pixel(float gyro_reading, float max_gyro_magnitude) {
     // minimum value will be pixel 62 (just above the x axis)
     byte scaled_gyro = 62;
 
-    scaled_gyro -= (byte)((ratio) * (graph_y_axis_height_px - 1));
+    scaled_gyro -= (byte)((ratio) * (GRAPH_y_AXIS_HEIGHT_PX - 1));
     return scaled_gyro;
 }

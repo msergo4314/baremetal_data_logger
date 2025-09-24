@@ -359,18 +359,6 @@ bool SD_read_block(uint32_t block_num, byte* block_data) {
     return true;
 }
 
-// static byte sd_get_response() {
-//     byte response = SPI_transfer_byte(SD_MOSI_IDLE_BITS, MODE_0);
-//     int count = 0;
-
-//     while (response == SD_MOSI_IDLE_BITS && count < 8) {
-//         response = SPI_transfer_byte(SD_MOSI_IDLE_BITS, MODE_0);
-//         count++;
-//     }
-
-//     return response;
-// }
-
 /*
 Reads num_blocks blocks of 512 bytes each including the starting block. Stores results in block_data
 Strongly reccommended to not read more than ~32 blocks at a time due to stack limitations
@@ -738,7 +726,7 @@ bool SD_clear_block(uint32_t block_num) {
 bool SD_clear_many_blocks(uint32_t starting_block_num, size_t num_blocks) {
     byte *zeroes = calloc(num_blocks, 512); // num_blocks entries of size 512 bytes
     if (!zeroes) {
-        printf("malloc failed inside SD_clear_many_blocks() function\n");
+        printf("calloc failed inside SD_clear_many_blocks() function\n");
         return false;
     }
     if (!SD_write_many_blocks(starting_block_num, zeroes, num_blocks)) {

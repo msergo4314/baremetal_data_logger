@@ -25,7 +25,7 @@ bool SD_card_init(gpio_num_t SD_card_chip_select);
  * Issues CMD17 and waits for the 0xFE data token, then reads one block.
  *
  * @param block_num   The block index (512-byte unit).
- * @param block_data  Pointer to buffer where the data will be stored (must be 512 bytes).
+ * @param block_data  Pointer to buffer where the data will be stored (must be 512 bytes or more).
  * @return true if the read succeeds, false otherwise.
  */
 bool SD_read_block(uint32_t block_num, byte* block_data);
@@ -37,7 +37,7 @@ bool SD_read_block(uint32_t block_num, byte* block_data);
  * Stops transmission with CMD12 when done.
  *
  * @param starting_block_num The starting block index.
- * @param block_data         Pointer to buffer where data will be stored (must be at least 512*num_blocks bytes).
+ * @param block_data         Pointer to buffer where data will be stored (must be at least 512 * num_blocks bytes long).
  * @param num_blocks         Number of blocks to read.
  * @return true if the read succeeds, false otherwise.
  */
