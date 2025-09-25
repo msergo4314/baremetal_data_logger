@@ -35,7 +35,12 @@
     "*.inc": "c",
     "sd_card_spi.h": "c",
     "gpio_reg.h": "c",
-    "gpio_struct.h": "c"
+    "gpio_struct.h": "c",
+    "regdef.h": "c",
+    "timer_group_reg.h": "c",
+    "timer_group_struct.h": "c",
+    "gptimer.h": "c",
+    "timer_types.h": "c"
   },
   "idf.flashType": "UART"
 }

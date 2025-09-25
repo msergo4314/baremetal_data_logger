@@ -45,8 +45,9 @@ bool SPI_init(void);
 * @brief Attatched a device to use for SPI communication
 * @param cs the chip select GPIO number (must be 0-31)
 * @param mode SPI mode of the device (0-3)
+* @return true if successful, else false
 */
-void SPI_attach_device(gpio_num_t cs, SPI_MODE mode);
+bool SPI_attach_device(gpio_num_t cs, SPI_MODE mode);
 
 /**
 * @brief Sends a stream of bytes of length number_of_bytes via SPI and stores the response data into rx_buffer

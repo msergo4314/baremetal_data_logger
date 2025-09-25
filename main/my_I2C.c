@@ -77,7 +77,12 @@ static inline void scl_low(void){ gpio_set_level(I2C_SCL, 0); }
 static inline void I2C_delay(void) {for (volatile int i = 0; i < 7; i++) { _NOP(); }}
 // static inline void I2C_delay(void) {esp_rom_delay_us(2);} // standard I2C uses 4 microsecond wait times
 
+static bool had_init = false;
+
 void I2C_init(void) {
+    if (had_init) {
+        return;
+    }
     gpio_reset_pin(I2C_SCL);
     gpio_reset_pin(I2C_SDA);
     gpio_config_t I2C_config = {
@@ -91,6 +96,7 @@ void I2C_init(void) {
     };
     gpio_config(&I2C_config); // sets up the lines
     I2C_stop(); // force the bus to be idle. Without this, the first communication attempt will not work (but second will)
+    had_init = true;
     return;
 }
 
@@ -132,6 +138,7 @@ bool I2C_send_byte_stream(byte slave_address, const byte *stream_of_bytes,
     }
     for (unsigned int i = 0; i < number_of_bytes_to_send; i++) {
         if (!I2C_write_byte(stream_of_bytes[i])) {
+            printf("Failed to write byte %u\n", i);
             return false;
         }
     }

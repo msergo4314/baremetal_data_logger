@@ -53,8 +53,12 @@ typedef enum {
 static SD_CARD_TYPE SD_card_type_global = UNKNOWN_TYPE;
 static gpio_num_t SD_CS_global = GPIO_NUM_NC; // chip select for SD card
 static uint32_t SD_number_of_blocks_global = 0; // number of 512 byte blocks
+static bool had_init = false;
 
 bool SD_card_init(gpio_num_t SD_card_chip_select) {
+    if (had_init) {
+        return true;
+    }
     // after power reaches > 2.2 V, wait at least 1 ms.
     esp_rom_delay_us(1000); // likely not needed but cheap to do
     SPI_attach_device(SD_card_chip_select, MODE_0);
@@ -129,6 +133,7 @@ bool SD_card_init(gpio_num_t SD_card_chip_select) {
     // SDXC/SDHC cards always use 512 byte blocks
     SD_number_of_blocks_global = SD_get_number_of_512_byte_blocks();
     SPI_cs_high(SD_CS_global);
+    had_init = true;
     return true;
 }
 

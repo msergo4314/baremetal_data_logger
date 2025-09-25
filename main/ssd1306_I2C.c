@@ -1,7 +1,8 @@
 #include "ssd1306_I2C.h"
 
 // the ssd1306 supports 3 addressing modes: Page, Horizontal, and Vertical
-ADDRESSING_MODE current_mode;
+static ADDRESSING_MODE current_mode;
+static bool had_init = false;
 /*
 instead of reading the GDDRAM to preserve data on pages, 
 we will track it fully in software to save time and reduce complexity
@@ -131,8 +132,10 @@ bool ssd1306_init(void) {
     Here we set a bunch of parameters to recommended values
     This is necessary to make sure we can boot the display into a known state (all parameters defined) on system reset
     */
-   I2C_init();
-
+    if (had_init) {
+        return true;
+    }
+    I2C_init();
     // Always reset the display into a known state
     if (!ssd1306_display_off()) return false; // Display OFF
     // Set display clock divide ratio/oscillator frequency
@@ -185,6 +188,7 @@ bool ssd1306_init(void) {
 
     // Default to PAGE addressing mode
     current_mode = PAGE;
+    had_init = true;
     return true;
 }
 
@@ -231,7 +235,7 @@ bool ssd1306_refresh_display(void) {
     bool pages_to_update[SSD1306_NUM_PAGES];
     bool exit_early = true;
     for (byte page = 0; page < SSD1306_NUM_PAGES; page++) {
-        if (memcmp(ssd1306GDDRAM_buffer_previous, ssd1306GDDRAM_buffer, sizeof(ssd1306GDDRAM_buffer)) == 0) {
+        if (memcmp(ssd1306GDDRAM_buffer_previous[page], ssd1306GDDRAM_buffer[page], sizeof(ssd1306GDDRAM_buffer[page])) == 0) {
             // the GDDRAM image for this page has not changed since the last display update
             pages_to_update[page] = false;
         } else {
@@ -258,12 +262,21 @@ bool ssd1306_refresh_display(void) {
             // skip pages that haven't changed
             continue;
         }
-        ssd1306_set_page_address(page);
-        ssd1306_set_column_address(0);
+        if (!ssd1306_set_page_address(page)) {
+            printf("could not set page address\n");
+            return false;
+        }
+        if (!ssd1306_set_column_address(0)) {
+            printf("could not set column address\n");
+            return false;
+        }
         byte buffer[SSD1306_OLED_WIDTH + 1];
         buffer[0] = SSD1306_CONTROL_BYTE(0, 1);
         memcpy(&buffer[1], &(ssd1306GDDRAM_buffer[page][0]), SSD1306_OLED_WIDTH);
-        if (!ssd1306_write_bytes(buffer, sizeof(buffer), true, true)) return false;
+        if (!ssd1306_write_bytes(buffer, sizeof(buffer), true, true)) {
+            printf("Failed to write page %d\n", (int)page);
+            return false;
+        }
     }
     // set the previous image to the current image
     memcpy(ssd1306GDDRAM_buffer_previous, ssd1306GDDRAM_buffer, sizeof(ssd1306GDDRAM_buffer));

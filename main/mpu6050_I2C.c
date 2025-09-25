@@ -1,9 +1,10 @@
 #include "mpu6050_I2C.h"
 
 // trackers for settings that would otherwise have to be read from registers (slow)
-MPU6050_GYROSCOPE_RANGE current_gyro_range;
-MPU6050_ACCELEROMETER_RANGE current_accel_range;
-MPU6050_DLPF_FREQ current_DLPF_val;
+static MPU6050_GYROSCOPE_RANGE current_gyro_range;
+static MPU6050_ACCELEROMETER_RANGE current_accel_range;
+static MPU6050_DLPF_FREQ current_DLPF_val;
+static bool had_init = false;
 
 // helpers not to be used outside of this file
 static inline bool mpu6050_write_to_register(byte register_to_write_to, byte value_to_write);
@@ -24,6 +25,9 @@ static inline float raw_gyro_to_float(mpu6050_raw_data raw_gyro);
 static bool mpu6050_reset(void);
 
 bool mpu6050_init(MPU6050_ACCELEROMETER_RANGE accel_range, MPU6050_GYROSCOPE_RANGE gyro_range) {
+    if (had_init) {
+        return true;
+    }
     I2C_init();
     // reset the sensor first
     if (!mpu6050_reset()) return false;
@@ -37,6 +41,7 @@ bool mpu6050_init(MPU6050_ACCELEROMETER_RANGE accel_range, MPU6050_GYROSCOPE_RAN
 
     // Set sample rate divider to 0 -> 1kHz
     if (!mpu6050_set_sample_rate(1000)) return false;
+    had_init = true;
     return true;
 }
 

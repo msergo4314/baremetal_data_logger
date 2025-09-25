@@ -19,6 +19,7 @@ static inline bool miso_read(void) {return ((GPIO.in >> SPI_MISO) & 0x1);}
 static SPI_device_t devices[SPI_MAX_ATTACHED_DEVICES];
 static size_t device_count = 0;
 static size_t half_cyle_NOP_delay_global = 0; // setting to 0 will still result in 1 NOP due to sample and hold times
+static bool had_init = false;
 
 // set both in init
 static double NOP_time_ns_global = 0.0;
@@ -42,26 +43,29 @@ static inline void SPI_half_cycle_delay(void) {for(size_t i = 0; i < half_cyle_N
 
 static byte get_device_index_from_cs(gpio_num_t cs);
 
-void SPI_attach_device(gpio_num_t cs, SPI_MODE mode) {
+bool SPI_attach_device(gpio_num_t cs, SPI_MODE mode) {
     if (device_count >= SPI_MAX_ATTACHED_DEVICES) {
         printf("Too many devices attached\n");
-        return;
+        return false;
     }
     if (cs >= GPIO_NUM_32) {
         printf("must use pins 0-31 for chip select pins!");
-        return;
+        return false;
     }
     if (get_device_index_from_cs(cs) != 255) {
-        printf("Device already added\n");
-        return;
+        // printf("Device already added\n");
+        return true;
     }
     SPI_device_t* dev = &devices[device_count++];
     dev->cs_pin = cs;
     dev->mode = mode;
-    return;
+    return true;
 }
 
 bool SPI_init(void) {
+    if (had_init) {
+        return true;
+    }
     if (device_count == 0) {
         printf("Error: cannot start SPI without any attached devices!\n");
         return false;
@@ -110,6 +114,7 @@ bool SPI_init(void) {
 
     // T1 = m * (0) + b --> T1 = b
     overhead_time_ns_global = T1;
+    had_init = true;
     return true;
 }
 

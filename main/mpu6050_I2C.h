@@ -64,11 +64,6 @@ typedef enum {
     MPU6050_DLPF_DISABLED = 7
 } MPU6050_DLPF_FREQ;
 
-/* Current configuration trackers — updated when setters are called. */
-extern MPU6050_GYROSCOPE_RANGE current_gyro_range;
-extern MPU6050_ACCELEROMETER_RANGE current_accel_range;
-extern MPU6050_DLPF_FREQ current_DLPF_val;
-
 /**
  * Convenience struct for storing X/Y/Z sensor data in floating-point form.
  */
