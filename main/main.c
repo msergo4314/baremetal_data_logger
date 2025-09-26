@@ -4,7 +4,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_chip_info.h"
-#include "esp_flash.h"
 #include "esp_system.h"
 #include "esp_rtc_time.h"
 #include "driver/gptimer.h" // hardware timer
@@ -13,7 +12,15 @@
 // custom libraries
 #include "ssd1306_I2C.h"
 #include "mpu6050_I2C.h"
-#include "SD_card_SPI.h"
+
+#define USE_HW_SPI 0
+
+#if USE_HW_SPI
+    #include "SD_card.h"
+#else 
+    #include "SD_card_SPI.h"
+#endif
+
 
 void insert_into_window(float value, float* graph_window, size_t number_of_window_elements);
 float xyz_2_norm(float x, float y, float z);
@@ -46,8 +53,13 @@ void setup_task(void* pvParameters);
 void MPU_task(void* pvParameters);
 void OLED_task(void* pvParameters);
 void SD_task(void* pvParameters);
+static bool timer_on_alarm_cb(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_ctx);
 
 void setup_task(void* pvParameters) {
+
+    /*
+    used more to test drivers than actual setup
+    */
 
     TaskHandle_t main_handle = (TaskHandle_t)pvParameters;
 
@@ -62,11 +74,13 @@ void setup_task(void* pvParameters) {
     printf("max acceleration is %.0f g with max magnitude %.2f\n", max_accel, max_accel_mag);
     printf("max gyro is %.0f deg/sec with max magnitude %.2f\n", max_deg_per_sec, max_gyro_mag);
 
-    if (!SD_card_init(5)) {
+    if (!SD_card_init(GPIO_NUM_5)) {
         printf("Could not init SD card\n");
         goto exit_failure;
     }
-    printf("SPI clock speed: %d Hz\n", SPI_get_clock_speed_Hz());
+    #if !USE_HW_SPI
+        printf("SPI clock speed: %d Hz\n", SPI_get_clock_speed_Hz());
+    #endif
     printf("SD card init successful\n");
     bool init = ssd1306_init();
     printf("OLED init success: %d\n", (int)init);
@@ -116,7 +130,7 @@ void setup_task(void* pvParameters) {
     start = esp_rtc_get_time_us();
     if (!SD_read_many_blocks(block_to_read, SD_memory_block, SD_NUMBER_OF_BLOCKS)) {
         printf("%d block read of block %d failed\n",(int)SD_NUMBER_OF_BLOCKS, block_to_read);
-        return;
+        goto exit_failure;
     }
     end = esp_rtc_get_time_us();
     elapsed = end - start;
@@ -127,7 +141,7 @@ void setup_task(void* pvParameters) {
     start = esp_rtc_get_time_us();
     if (!SD_write_block(500000, (const byte*)SD_memory_block)) {
         printf("SD write failed\n");
-        return;
+        goto exit_failure;
     }
     end = esp_rtc_get_time_us();
     elapsed = end - start;
@@ -148,10 +162,10 @@ void setup_task(void* pvParameters) {
     memset(SD_memory_block, 0x0, sizeof(SD_memory_block)); // reset the string by clearing the old bytes
     SD_memory_block[0] = 0xAA;
     start = esp_rtc_get_time_us();
-    if (!SD_write_many_blocks(500001, SD_memory_block, 5)) {printf("Write failure\n"); goto exit_failure;}
+    if (!SD_write_many_blocks(500001, SD_memory_block, 10)) {printf("Write failure\n"); goto exit_failure;}
     end = esp_rtc_get_time_us();
     elapsed = end - start;
-    printf("5 block write took %.4f ms\n", elapsed / 1000.0);
+    printf("10 block write took %.4f ms\n", elapsed / 1000.0);
     // printf("Wrote 5 blocks successfully. Reading 6 blocks:\n");
     if (!SD_read_many_blocks(500000, SD_memory_block, 6)) {printf("Read failure\n"); goto exit_failure;}
 
@@ -162,8 +176,8 @@ void setup_task(void* pvParameters) {
     //     }
     //     printf("\n");
     // }
-    if(!SD_clear_many_blocks(500000, 6)) goto exit_failure;
-    for (int i = 0; i < 6; i++) {
+    if(!SD_clear_many_blocks(500000, 11)) goto exit_failure;
+    for (int i = 0; i < 11; i++) {
         int block_to_check = 500000 + i;
         if (!SD_is_block_empty(block_to_check)) {
             printf("Block %d was not cleared properly!\n", block_to_check);
@@ -189,7 +203,6 @@ static bool timer_on_alarm_cb(gptimer_handle_t timer, const gptimer_alarm_event_
     
     // Notify the MPU task
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-    // Example: notify a task
     TaskHandle_t task_to_notify = *(TaskHandle_t*)user_ctx;
     if (task_to_notify) {
         vTaskNotifyGiveFromISR(task_to_notify, &xHigherPriorityTaskWoken);
@@ -228,7 +241,6 @@ void MPU_task(void* pvParameters) {
     // Start the timer
     ESP_ERROR_CHECK(gptimer_start(gptimer));
 
-    
     // grab a reading at a fixed rate
     queue_data data;
     data.timestamp = esp_rtc_get_time_us() / 1e6f;
@@ -253,6 +265,7 @@ void OLED_task(void* pvParameters) {
     max_accel = 2 * powf(2.0, accel_range);
     max_deg_per_sec = 250 * powf(2.0, gyro_range);
 
+    // 2 norm of 3D vectors
     max_accel_mag = sqrt(3 * (max_accel * max_accel));
     max_gyro_mag = sqrt(3 * (max_deg_per_sec * max_deg_per_sec));
 
@@ -275,9 +288,8 @@ void OLED_task(void* pvParameters) {
     
     queue_data last_data;
     for (;;) {
-
         // grab the most recent readings
-        xQueueReceive(OLED_queue, &last_data, portMAX_DELAY);
+        xQueueReceive(OLED_queue, &last_data, pdMS_TO_TICKS(10));
         acceleration = last_data.accel;
         gyro = last_data.gyro;
         temperature = last_data.temperature;
@@ -428,8 +440,8 @@ void app_main(void) {
                 1024 * 2,                             /* Stack size in words, not bytes. (1 word = 4 bytes)*/
                 NULL,                                 /* Parameter passed into the task. */
                 2,                                    /* Priority at which the task is created. */
-                &mpu_task_handle,                             /* handle for task being created */
-                1                                     /* Core to run task. */
+                &mpu_task_handle,                     /* handle for task being created */
+                0                                     /* Core to run task. */
                 );
 
     if(xReturned != pdPASS) {
@@ -444,7 +456,7 @@ void app_main(void) {
                 NULL,                                 /* Parameter passed into the task. */
                 2,                                    /* Priority at which the task is created. */
                 &xHandle,                             /* handle for task being created */
-                1                                     /* Core to run task */
+                0                                     /* Core to run task */
                 );
 
     if(xReturned != pdPASS) {
@@ -459,7 +471,7 @@ void app_main(void) {
                 NULL,                                 /* Parameter passed into the task. */
                 2,                                    /* Priority at which the task is created. */
                 &xHandle,                             /* handle for task being created */
-                1                                     /* Core to run task */
+                0                                     /* Core to run task */
                 );
 
     if(xReturned != pdPASS) {

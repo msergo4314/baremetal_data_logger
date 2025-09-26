@@ -74,7 +74,7 @@ static inline void scl_low(void){ gpio_set_level(I2C_SCL, 0); }
 
 // 5 NOPs is the lowest possible delay we can have before the SSD1306 NACKs consistently
 // more NOPs safer -- especially for longer wires
-static inline void I2C_delay(void) {for (volatile int i = 0; i < 7; i++) { _NOP(); }}
+static inline void I2C_delay(void) {for (volatile int i = 0; i < 8; i++) { _NOP(); }}
 // static inline void I2C_delay(void) {esp_rom_delay_us(2);} // standard I2C uses 4 microsecond wait times
 
 static bool had_init = false;

@@ -39,6 +39,8 @@ One drawback of the ESP-idf is that Adafruit does NOT provide their own librarie
 │   ├── my_SPI.h
 │   ├── SD_card_SPI.c
 │   ├── SD_card_SPI.h
+│   ├── SD_card.c
+│   ├── SD_card.h
 │   ├── ssd1306_I2C.c
 │   └── ssd1306_I2C.h
 └── README.md           <--This is the file you are currently reading
@@ -74,7 +76,7 @@ This module controls an SSD1306-based OLED display over I²C.
 
 -Utilizes a GDDRAM image to store and update the memory of the OLED instead of reading from the OLED (would be slow)
 
-# my_SPI.h and .c
+# my_SPI.h and my_SPI.c
 
 This module provides a simplified SPI driver interface for the ESP32.
 
@@ -86,7 +88,7 @@ This module provides a simplified SPI driver interface for the ESP32.
 
 -Abstracts ESP-IDF SPI driver calls into a cleaner C API for embedded applications.
 
-# mpu6050.h and mpu6050.c
+# mpu6050_I2C.h and mpu6050_I2C.c
 
 This module interfaces with the MPU6050 6-axis IMU (3-axis accelerometer + 3-axis gyroscope).
 
@@ -100,7 +102,7 @@ This module interfaces with the MPU6050 6-axis IMU (3-axis accelerometer + 3-axi
 
 -Includes timing considerations: e.g., after issuing a reset, the driver uses esp_rom_delay_us() instead of FreeRTOS delays to avoid NACKs during reboot.
 
-# SD_card.h and SD_card.c
+# SD_card_SPI.h and SD_card_SPI.c
 
 This module implements raw SD card communication over SPI.
 
@@ -115,5 +117,11 @@ This module implements raw SD card communication over SPI.
 -Uses the my_SPI interface as the transport layer.
 
 -Designed for raw block access (no FAT/exFAT filesystem layer). This makes it suitable for logging raw data or as a building block for a future filesystem implementation.
+
+# SD_card.h and SD_card.c
+
+-This is the same as above but uses the hardware peripherals of the ESP32 instead of software for the SPI transfers. The speed of the SCL line is 20 MHz and transfers are about 2x faster than the Bit banged version (more optimization likely needed)
+
+-Note that the CmakeLists.txt file in main must be updated to include "SD_card.c" as a source if you want to use these files
 
 [clutch link](https://elm-chan.org/docs/mmc/mmc_e.html)

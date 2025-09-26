@@ -3,7 +3,8 @@
   "idf.espIdfPathWin": "C:\\Users\\marti\\esp\\v5.5\\esp-idf",
   "idf.pythonInstallPath": "C:\\Espressif\\tools\\idf-python\\3.11.2\\python.exe",
   "idf.openOcdConfigs": [
-    "board/esp32-wroom.cfg"
+    "interface/ftdi/esp32_devkitj_v1.cfg",
+    "target/esp-wroom-32.cfg"
   ],
   "idf.portWin": "COM7",
   "idf.toolsPathWin": "C:\\Espressif",
@@ -40,7 +41,12 @@
     "timer_group_reg.h": "c",
     "timer_group_struct.h": "c",
     "gptimer.h": "c",
-    "timer_types.h": "c"
+    "timer_types.h": "c",
+    "i2c.h": "c",
+    "esp_rom_sys.h": "c",
+    "i2c_master.h": "c",
+    "sd_card.h": "c",
+    "spi_master.h": "c"
   },
   "idf.flashType": "UART"
 }
