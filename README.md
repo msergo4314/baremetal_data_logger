@@ -50,6 +50,26 @@ The project **baremetal_data_logger** contains one source file in C language [ma
 
 Below are the explanations of the files in the main folder with implementation details.
 
+# main.c
+
+The main.c file brings together all custom drivers into a real-time data logging system using FreeRTOS. The system is organized into three concurrent tasks synchronized by queues and a hardware timer:
+
+- MPU_task — polls the MPU6050 at 100 Hz using a hardware timer ISR and pushes data (accel, gyro, temperature, timestamp) to the SD and OLED queues.
+
+- OLED_task — refreshes the SSD1306 display at 20 Hz, showing real-time accel/gyro magnitudes on scrolling graphs and die temperature text.
+
+- SD_task — buffers queue_data entries into 512 B blocks and performs multi-block writes to the SD card for efficient, continuous logging ($>$2 hours before overwrite).
+
+A setup_task handles driver initialization, verifies I²C and SPI performance, and tests read/write operations before the application starts. Communication between tasks uses FreeRTOS queues and direct notifications to guarantee deterministic timing.
+
+Measured performance:
+
+I²C stable up to 600 kHz vs the 400 KHz "fast" mode.
+
+SPI transfers at 3.2 MHz with reliable multi-block read/write. This is significantly slower than the 26 MHz SPI speeds available using the on-board hardware peripheral, and is a direct result of the number of instructions executed per transmission.
+
+End-to-end latency $\sim$10 ms for IMU sampling and $<$50 ms for OLED refresh.
+
 # my_I2C.h and my_I2C.c
 
 This module implements a lightweight I²C communication driver for the ESP32.
