@@ -26,15 +26,6 @@ typedef enum {
 void I2C_init(void);
 
 /**
- * @brief Read a single byte from the I2C slave.
- *
- * @param ack  If true, sends ACK after reading (request more data).
- *             If false, sends NACK (end of transmission).
- * @return The byte read from the slave.
- */
-byte I2C_read_byte(bool ack);
-
-/**
  * @brief Send a sequence of bytes to an I2C slave.
  *
  * @param slave_address       7-bit address of the I2C slave.

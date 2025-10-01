@@ -367,8 +367,7 @@ static uint16_t SD_send_command_r2(byte cmd, const byte *args, bool done) {
         }
     } while (r1 & 0x80);
     // read one more byte after the R1
-    ESP_ERROR_CHECK(spi_device_transmit(SD_handle, &transaction_data));
-    uint16_t response =  (uint16_t)(r1 << 4) & transaction_data.rx_data[0];
+    uint16_t response =  (uint16_t)(r1 << 4) & SD_send_idle_byte();
     if (done) {
         deassert_cs();
     }

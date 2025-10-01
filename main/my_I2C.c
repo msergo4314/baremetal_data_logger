@@ -1,4 +1,5 @@
 #include "my_I2C.h"
+#include "freertos/FreeRTOS.h"
 /*
 SEND MSB first for data transmissions
 
@@ -30,6 +31,8 @@ static inline void sda_low(void);
 static inline void scl_high(void);
 static inline void scl_low(void);
 static inline void I2C_delay(void);
+
+static SemaphoreHandle_t I2C_bus_mutex = NULL;
 
 /**
  * @brief Generate an I2C START condition.
@@ -66,6 +69,9 @@ static bool I2C_write_byte(byte byte_to_write);
  */
 static inline bool transmit_address_and_RW(byte address_of_slave, READ_OR_WRITE rw);
 
+static inline byte I2C_read_byte(bool ack);
+static inline bool I2C_write_byte(byte byte_to_write);
+
 // make functions static if they won't be used in external files ("private")
 static inline void sda_high(void){ gpio_set_level(I2C_SDA, 1); } // releases line in OD mode
 static inline void sda_low(void){ gpio_set_level(I2C_SDA, 0); }
@@ -74,7 +80,7 @@ static inline void scl_low(void){ gpio_set_level(I2C_SCL, 0); }
 
 // 5 NOPs is the lowest possible delay we can have before the SSD1306 NACKs consistently
 // more NOPs safer -- especially for longer wires
-static inline void I2C_delay(void) {for (volatile int i = 0; i < 8; i++) { _NOP(); }}
+static inline void I2C_delay(void) {for (volatile int i = 0; i < 6; i++) { _NOP(); }}
 // static inline void I2C_delay(void) {esp_rom_delay_us(2);} // standard I2C uses 4 microsecond wait times
 
 static bool had_init = false;
@@ -97,10 +103,14 @@ void I2C_init(void) {
     gpio_config(&I2C_config); // sets up the lines
     I2C_stop(); // force the bus to be idle. Without this, the first communication attempt will not work (but second will)
     had_init = true;
+    I2C_bus_mutex = xSemaphoreCreateMutex();
+    if (I2C_bus_mutex == NULL) {
+        printf("Could not make I2C bus mutex in I2C_init()\n");
+    }
     return;
 }
 
-byte I2C_read_byte(bool ack) {
+static inline byte I2C_read_byte(bool ack) {
     byte data = 0x0;
     sda_high(); // release SDA so slave can drive it
     for (byte i = 0; i < 8; i++) {
@@ -126,26 +136,34 @@ bool I2C_send_byte_stream(byte slave_address, const byte *stream_of_bytes,
                           size_t number_of_bytes_to_send, READ_OR_WRITE rw,
                           bool start_transmission, bool end_transmission) {
     if (!stream_of_bytes) {
-        printf("Passed NULL pointer to I2C_send_byte_stream\n");
+        printf("Passed NULL pointer to I2C_send_byte_stream()\n");
         return false;
     }
-    if (start_transmission) {
-        I2C_start();
-        if (!transmit_address_and_RW(slave_address, rw)) {
-            printf("transmitting address and R/W resulted in NACK! Address given: %x\n", slave_address);
-            return false;
+    if (xSemaphoreTake(I2C_bus_mutex, portMAX_DELAY) == pdTRUE) {
+        if (start_transmission) {
+            I2C_start();
+            if (!transmit_address_and_RW(slave_address, rw)) {
+                printf("transmitting address and R/W resulted in NACK! Address given: %x\n", slave_address);
+                xSemaphoreGive(I2C_bus_mutex);
+                return false;
+            }
         }
-    }
-    for (unsigned int i = 0; i < number_of_bytes_to_send; i++) {
-        if (!I2C_write_byte(stream_of_bytes[i])) {
-            printf("Failed to write byte %u\n", i);
-            return false;
+        for (unsigned int i = 0; i < number_of_bytes_to_send; i++) {
+            if (!I2C_write_byte(stream_of_bytes[i])) {
+                printf("Failed to write byte %u\n", i);
+                xSemaphoreGive(I2C_bus_mutex);
+                return false;
+            }
         }
+        if (end_transmission) {
+            I2C_stop();
+        }
+        xSemaphoreGive(I2C_bus_mutex);
+        return true;
+    } else {
+        printf("couldn't obtain I2c bus mutex in I2C_send_byte_stream()\n");
+        return false;
     }
-    if (end_transmission) {
-        I2C_stop();
-    }
-    return true;
 }
 
 
@@ -154,18 +172,36 @@ bool I2C_read_one(byte slave_address, byte register_to_read, byte* value) {
         printf("passed NULL pointer\n");
         return false;
     }
-
-    I2C_start();
-    if (!transmit_address_and_RW(slave_address, WRITE)) { I2C_stop(); return false; }
-    // slave must ACK on the register we want to read
-    if (!I2C_write_byte(register_to_read)) { I2C_stop(); return false; }
-    // send a new start condition for the read (bus is still held because no STOP)
-    I2C_start();
-    if (!transmit_address_and_RW(slave_address, READ)) { I2C_stop(); return false; }
-
-    *value = I2C_read_byte(false); // false ==> NACK after single byte read
-    I2C_stop();
-    return true;
+    // take the mutex
+    if (xSemaphoreTake(I2C_bus_mutex, portMAX_DELAY) == pdTRUE) {
+        I2C_start();
+        if (!transmit_address_and_RW(slave_address, WRITE)) {
+            I2C_stop();
+            xSemaphoreGive(I2C_bus_mutex);
+            return false;
+        }
+        // slave must ACK on the register we want to read
+        if (!I2C_write_byte(register_to_read)) {
+            I2C_stop();
+            xSemaphoreGive(I2C_bus_mutex);
+            return false;
+        }
+        // send a new start condition for the read (bus is still held because no STOP)
+        I2C_start();
+        if (!transmit_address_and_RW(slave_address, READ)) {
+            I2C_stop();
+            xSemaphoreGive(I2C_bus_mutex);
+            return false;
+        }
+        xSemaphoreGive(I2C_bus_mutex);
+        *value = I2C_read_byte(false); // false ==> NACK after single byte read
+        I2C_stop();
+        
+        return true;
+    } else {
+        printf("Could not obtain the I2C bus mutex in I2C_read_one()\n");
+        return false;
+    }
 }
 
 bool I2C_read_many(byte slave_address, byte starting_register, size_t number_of_bytes_to_read, byte* read_bytes) {
@@ -174,29 +210,54 @@ bool I2C_read_many(byte slave_address, byte starting_register, size_t number_of_
         return false;
     }
 
-    I2C_start();
-    if (!transmit_address_and_RW(slave_address, WRITE)) { I2C_stop(); return false; }
-    // slave must ACK on the register we want to read
-    if (!I2C_write_byte(starting_register)) { I2C_stop(); return false; }
-    // send a new start condition for the read (bus is still held because no STOP)
-    I2C_start();
-    if (!transmit_address_and_RW(slave_address, READ)) { I2C_stop(); return false; }
+    // take the mutex
+    if (xSemaphoreTake(I2C_bus_mutex, portMAX_DELAY) == pdTRUE) {
+        I2C_start();
+        if (!transmit_address_and_RW(slave_address, WRITE)) {
+            I2C_stop();
+            xSemaphoreGive(I2C_bus_mutex);
+            return false;
+        }
+        // slave must ACK on the register we want to read
+        if (!I2C_write_byte(starting_register)) {
+            I2C_stop();
+            xSemaphoreGive(I2C_bus_mutex);
+            return false;
+        }
+        // send a new start condition for the read (bus is still held because no STOP)
+        I2C_start();
+        if (!transmit_address_and_RW(slave_address, READ)) {
+            I2C_stop();
+            xSemaphoreGive(I2C_bus_mutex);
+            return false;
+        }
 
-    // ACK all bytes except the last
-    for (size_t i = 0; i < number_of_bytes_to_read - 1; i++) {
-        read_bytes[i] = I2C_read_byte(true);
+        // ACK all bytes except the last
+        for (size_t i = 0; i < number_of_bytes_to_read - 1; i++) {
+            read_bytes[i] = I2C_read_byte(true);
+        }
+        // NACK the final byte to indicate we are done reading
+        read_bytes[number_of_bytes_to_read] = I2C_read_byte(false);
+        I2C_stop();
+        xSemaphoreGive(I2C_bus_mutex);
+        return true;
+    } else {
+        printf("could not take the I2C bus mutex\n");
+        return false;
     }
-    // NACK the final byte to indicate we are done reading
-    read_bytes[number_of_bytes_to_read] = I2C_read_byte(false);
-    I2C_stop();
-    return true;
 }
 
 bool I2C_find_device(byte address_of_device) {
-    I2C_start();
-    bool success = transmit_address_and_RW(address_of_device, WRITE);
-    I2C_stop();
-    return success;
+    if (xSemaphoreTake(I2C_bus_mutex, portMAX_DELAY) == pdTRUE) {
+        I2C_start();
+        bool success = transmit_address_and_RW(address_of_device, WRITE);
+        I2C_stop();
+        xSemaphoreGive(I2C_bus_mutex);
+        return success;
+    } else {
+        printf("could not acquire mutex in I2c_find_device()\n");
+        return false;
+    }
 }
 
 static void I2C_start(void) {
@@ -229,7 +290,7 @@ static void I2C_stop(void) {
     return;
 }
 
-static bool I2C_write_byte(byte byte_to_write) {
+static inline bool I2C_write_byte(byte byte_to_write) {
     /* 
     NOTE: SDA can only transition when SCL is LOW and must be held when SCL is HIGH
     write MSBs first --> 7 down to 0
@@ -252,7 +313,7 @@ static bool I2C_write_byte(byte byte_to_write) {
 
         /*
         Without the delay, the high period is longer than the low period
-        I2C actually doesn't care about the duty cycle of the 
+        I2C actually doesn't care about the duty cycle of the clock
         */
         // I2C_delay(); // UNCOMMENT FOR EVEN CLOCK DUTY CYCLE. 
     }
@@ -267,5 +328,5 @@ static bool I2C_write_byte(byte byte_to_write) {
 // Note: does not have any START/STOP conditions, just sends the byte
 static inline bool transmit_address_and_RW(byte address_of_slave, READ_OR_WRITE rw) {
     // the address needs to be 7 bits long. Left shift and insert read/write bit as the LSB
-    return I2C_write_byte((address_of_slave << 1) | rw);
+    return I2C_write_byte((address_of_slave << 1) | (rw & 0x1));
 }

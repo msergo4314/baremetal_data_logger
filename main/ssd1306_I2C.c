@@ -11,7 +11,7 @@ we will track it fully in software to save time and reduce complexity
 byte ssd1306GDDRAM_buffer[SSD1306_NUM_PAGES][SSD1306_OLED_WIDTH] = {0};
 
 // Use a shadow buffer to check which parts of the GDDRAM actually need to be updated
-byte ssd1306GDDRAM_buffer_previous[SSD1306_NUM_PAGES][SSD1306_OLED_WIDTH] = {0};
+byte ssd1306GDDRAM_buffer_previous[SSD1306_NUM_PAGES][SSD1306_OLED_WIDTH] = {};
 /*
 
 When transmitting bytes with I2C, we have two options for the OLED -- a command or data
@@ -138,6 +138,7 @@ bool ssd1306_init(void) {
     I2C_init();
     // Always reset the display into a known state
     if (!ssd1306_display_off()) return false; // Display OFF
+
     // Set display clock divide ratio/oscillator frequency
     // 0x80 = recommended oscillator frequency
     if (!ssd1306_write_command2(0xD5, 0x80)) return false;
@@ -183,9 +184,12 @@ bool ssd1306_init(void) {
 
     // Set normal (non-inverted) display mode
     if (!ssd1306_normal_display()) return false;
+
+    // make sure the previous buffer is non zero for each page
+    memset(ssd1306GDDRAM_buffer_previous, 0xFF, SSD1306_OLED_WIDTH * SSD1306_NUM_PAGES);
     if (!ssd1306_clear_screen()) return false;
     if (!ssd1306_display_on()) return false;
-
+    if (!ssd1306_set_addressing_mode(PAGE)) return false;
     // Default to PAGE addressing mode
     current_mode = PAGE;
     had_init = true;
@@ -284,8 +288,8 @@ bool ssd1306_refresh_display(void) {
 }
 // clears screen by setting GDDRAM to 0 and calling ssd1306_refresh_display()
 bool ssd1306_clear_screen(void) {
-    // to clear, write all 0s into RAM buffer, then write the whole buffer
-    memset(ssd1306GDDRAM_buffer, 0x0, 1024); // set the internal buffer to be all 0s
+    // to clear, write all 0s into RAM buffer, then update as needed
+    memset(ssd1306GDDRAM_buffer, 0x0, SSD1306_NUM_PAGES * SSD1306_OLED_WIDTH); // set the internal buffer to be all 0s
     return ssd1306_refresh_display();
 }
 

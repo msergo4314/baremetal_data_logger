@@ -98,6 +98,19 @@ bool SD_is_block_empty(uint32_t block_num);
 bool SD_deinit(void);
 
 /**
+ * @brief locks the SPI bus. Unlock with SD_unlock()
+ * 
+ * * must be called after the init
+ */
+void SD_lock(void);
+/**
+ * @brief unlocks the SPI bus which was previously locked with SD_lock()
+ * 
+ * must be called after the init
+ */
+void SD_unlock(void);
+
+/**
  * @brief Clear a block by writing all zeroes.
  *
  * If already empty, nothing is written.

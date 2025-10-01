@@ -13,7 +13,7 @@
 #include "ssd1306_I2C.h"
 #include "mpu6050_I2C.h"
 
-#define USE_HW_SPI 0
+#define USE_HW_SPI 1
 
 #if USE_HW_SPI
     #include "SD_card.h"
@@ -39,10 +39,10 @@ const MPU6050_ACCELEROMETER_RANGE accel_range = MPU6050_RANGE_2_G;
 const MPU6050_GYROSCOPE_RANGE gyro_range = MPU6050_RANGE_250_DEG;
 
 typedef struct {
-    float timestamp;
+    float timestamp; //timestamp since program start
     mpu6050_xyz_data accel;
     mpu6050_xyz_data gyro;
-    float temperature;
+    float temperature; // MPU die temp
 } queue_data;
 
 QueueHandle_t OLED_queue, SD_queue;
@@ -53,7 +53,7 @@ void setup_task(void* pvParameters);
 void MPU_task(void* pvParameters);
 void OLED_task(void* pvParameters);
 void SD_task(void* pvParameters);
-static bool timer_on_alarm_cb(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_ctx);
+static bool alarm_cb(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_ctx);
 
 void setup_task(void* pvParameters) {
 
@@ -194,7 +194,7 @@ void setup_task(void* pvParameters) {
     vTaskDelete(NULL);
 }
 
-static bool timer_on_alarm_cb(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_ctx) {
+static bool alarm_cb(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_ctx) {
     // General process for handling event callbacks:
     // 1. Retrieve user context data from user_ctx (passed in from gptimer_register_event_callbacks)
     // 2. Get alarm event data from edata, such as edata->count_value
@@ -232,7 +232,7 @@ void MPU_task(void* pvParameters) {
     ESP_ERROR_CHECK(gptimer_set_alarm_action(gptimer, &alarm_config));
 
     gptimer_event_callbacks_t cbs = {
-        .on_alarm = timer_on_alarm_cb, // Call the user callback function when the alarm event occurs
+        .on_alarm = alarm_cb, // Call the user callback function when the alarm event occurs
     };
     // Register timer event callback functions, allowing user context to be carried
     ESP_ERROR_CHECK(gptimer_register_event_callbacks(gptimer, &cbs, (void*)&mpu_task_handle)); // set the context to the task handle we want to notify
@@ -243,15 +243,16 @@ void MPU_task(void* pvParameters) {
 
     // grab a reading at a fixed rate
     queue_data data;
-    data.timestamp = esp_rtc_get_time_us() / 1e6f;
     for (;;) {
         // wait for the hardware timer alarm to trigger (every 10 ms)
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
         // read accel, gyro, and die temp
+        // printf("calling mpu read all\n");
         mpu6050_read_all(&(data.accel), &(data.gyro), &(data.temperature));
+        // printf("finished mpu read all\n");
+        data.timestamp = esp_rtc_get_time_us() / 1e6f; // get current timestamp in seconds
         xQueueSendToBack(SD_queue, &data, pdMS_TO_TICKS(10)); // wait up to 10 ms if queue is filled
         xQueueOverwrite(OLED_queue, &data); // put most recent data in OLED queue
-        data.timestamp = esp_rtc_get_time_us() / 1e6f;
     }
 }
 
@@ -411,7 +412,7 @@ void app_main(void) {
     xReturned = xTaskCreatePinnedToCore(
                 setup_task,                            /* Function that implements the task. */
                 "SETUP TASK",                          /* Text name for the task. */
-                1024 * 10,                             /* Stack size in words, not bytes. (1 word = 4 bytes)*/
+                1024 * 10,                             /* Stack size in bytes. (1 word = 4 bytes)*/
                 (void*)xTaskGetCurrentTaskHandle(),    /* Parameter passed into the task. */
                 2,                                     /* Priority at which the task is created. */
                 &xHandle,                              /* handle for task being created */
@@ -420,8 +421,7 @@ void app_main(void) {
 
     if(xReturned != pdPASS) {
         printf("could not create the setup task\n");
-        return;
-        
+        return;   
     }
     // wait for setup task to finish
     uint32_t setupStatus;
@@ -437,7 +437,7 @@ void app_main(void) {
     xReturned = xTaskCreatePinnedToCore(
                 MPU_task,                             /* Function that implements the task. */
                 "MPU TASK",                           /* Text name for the task. */
-                1024 * 2,                             /* Stack size in words, not bytes. (1 word = 4 bytes)*/
+                1024 * 2,                             /* Stack size in bytes. (1 word = 4 bytes)*/
                 NULL,                                 /* Parameter passed into the task. */
                 2,                                    /* Priority at which the task is created. */
                 &mpu_task_handle,                     /* handle for task being created */
@@ -452,7 +452,7 @@ void app_main(void) {
     xReturned = xTaskCreatePinnedToCore(
                 OLED_task,                            /* Function that implements the task. */
                 "OLED TASK",                          /* Text name for the task. */
-                1024 * 5,                             /* Stack size in words, not bytes. (1 word = 4 bytes)*/
+                1024 * 5,                             /* Stack size in bytes. (1 word = 4 bytes)*/
                 NULL,                                 /* Parameter passed into the task. */
                 2,                                    /* Priority at which the task is created. */
                 &xHandle,                             /* handle for task being created */
@@ -467,7 +467,7 @@ void app_main(void) {
     xReturned = xTaskCreatePinnedToCore(
                 SD_task,                              /* Function that implements the task. */
                 "SD TASK",                            /* Text name for the task. */
-                1024 * 10,                            /* Stack size in words, not bytes. (1 word = 4 bytes)*/
+                1024 * 10,                            /* Stack size in bytes. (1 word = 4 bytes)*/
                 NULL,                                 /* Parameter passed into the task. */
                 2,                                    /* Priority at which the task is created. */
                 &xHandle,                             /* handle for task being created */
@@ -476,7 +476,6 @@ void app_main(void) {
 
     if(xReturned != pdPASS) {
         printf("could not create the SD task\n");
-        return;
     }
     return;
 }

@@ -46,7 +46,8 @@
     "esp_rom_sys.h": "c",
     "i2c_master.h": "c",
     "sd_card.h": "c",
-    "spi_master.h": "c"
+    "spi_master.h": "c",
+    "cstddef": "c"
   },
   "idf.flashType": "UART"
 }

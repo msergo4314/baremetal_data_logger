@@ -68,7 +68,7 @@ I²C stable up to 600 kHz vs the 400 KHz "fast" mode.
 
 SPI transfers at 3.2 MHz with reliable multi-block read/write. This is significantly slower than the 26 MHz SPI speeds available using the on-board hardware peripheral, and is a direct result of the number of instructions executed per transmission.
 
-End-to-end latency $\sim$10 ms for IMU sampling and $<$50 ms for OLED refresh.
+End-to-end latency 10 ms (100 Hz) for IMU sampling and 50 ms (20 Hz) for OLED refresh.
 
 # my_I2C.h and my_I2C.c
 
@@ -138,10 +138,10 @@ This module implements raw SD card communication over SPI.
 
 -Designed for raw block access (no FAT/exFAT filesystem layer). This makes it suitable for logging raw data or as a building block for a future filesystem implementation.
 
+[clutch link](https://elm-chan.org/docs/mmc/mmc_e.html)
+
 # SD_card.h and SD_card.c
 
 -This is the same as above but uses the hardware peripherals of the ESP32 instead of software for the SPI transfers. The speed of the SCL line is 20 MHz and transfers are about 2x faster than the Bit banged version (more optimization likely needed)
 
--Note that the CmakeLists.txt file in main must be updated to include "SD_card.c" as a source if you want to use these files
-
-[clutch link](https://elm-chan.org/docs/mmc/mmc_e.html)
+-Note that the CmakeLists.txt file in main must be updated to include "SD_card.c" as a source if you want to use these files. the preprocessor flag in main needs to be set to 1. If you don't want to use this, the "SD_card.c" include of the CmakeLists file must be commented or removed and the USE_HW_SPI flag must be 0
