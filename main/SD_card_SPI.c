@@ -206,7 +206,7 @@ static uint16_t SD_send_command_r2(byte cmd, const byte *args, bool done) {
         }
     } while (r1 & 0x80);
     // read one more byte after the R1
-    uint16_t response =  (uint16_t)(r1 << 4) & SPI_transfer_byte(SD_MOSI_IDLE_BITS, MODE_0);
+    uint16_t response =  (uint16_t)(r1 << 8) & SPI_transfer_byte(SD_MOSI_IDLE_BITS, MODE_0);
     if (done) SPI_cs_high(SD_CS_global);
     return response;
 }
