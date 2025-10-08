@@ -161,7 +161,7 @@ bool I2C_send_byte_stream(byte slave_address, const byte *stream_of_bytes,
         xSemaphoreGive(I2C_bus_mutex);
         return true;
     } else {
-        printf("couldn't obtain I2c bus mutex in I2C_send_byte_stream()\n");
+        printf("couldn't obtain I2C bus mutex in I2C_send_byte_stream()\n");
         return false;
     }
 }
@@ -296,7 +296,7 @@ static inline bool I2C_write_byte(byte byte_to_write) {
     write MSBs first --> 7 down to 0
     SCL MUST be LOW when this function is called
     */
-    for(int i = 7; i >= 0; i--) {
+    for(int8_t i = 7; i >= 0; i--) {
         // bitwise AND with left shifted 1 to pick a single bit
         (byte_to_write & (1 << i)) ? sda_high() : sda_low(); // write SDA HIGH/LOW depending on the bits
         /*

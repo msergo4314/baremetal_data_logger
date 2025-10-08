@@ -545,7 +545,7 @@ bool ssd1306_clear_hline(byte y, byte x1, byte x2, bool flush) {
 
 // vertical line of width 1 pixel
 static inline bool ssd1306_draw_vline_core(byte x, byte y1, byte y2, bool flush, PIXEL_MODE on_or_off) {
-    if (!ssd1306_verify_coordinates_are_valid((ssd1306_pixel_coordinate){.x = x, .y = y1}) || 
+    if (!ssd1306_verify_coordinates_are_valid((ssd1306_pixel_coordinate){.x = x, .y = y1}) ||
         !ssd1306_verify_coordinates_are_valid((ssd1306_pixel_coordinate){.x = x, .y = y2})) {
         printf("invalid coordinates given in ssd1306_draw_vline_core()\n");
         return false;
@@ -706,6 +706,7 @@ static const byte font8x8[95][8] = {
 static byte* get_bitmap_from_ascii(byte character) {
     if (character < 32 || character > 126) {
         // if invalid, don't set any pixels (will look like nothing or a space)
+        printf("Warning: Provided invalid character in get_bitmap_from_ascii() function\n");
         return (byte*)font8x8[0]; // return all 0s
     }
     return (byte*)font8x8[character - 32];

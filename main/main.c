@@ -13,7 +13,7 @@
 #include "ssd1306_I2C.h"
 #include "mpu6050_I2C.h"
 
-#define USE_HW_SPI 1
+#define USE_HW_SPI 0
 
 #if USE_HW_SPI
     #include "SD_card.h"
@@ -29,8 +29,8 @@ void reset_512_byte_block_buffer(byte* buffer, size_t number_of_blocks);
 byte accel_to_scaled_pixel(float accleration_reading, float max_accel_magnitude);
 byte gyro_to_scaled_pixel(float gyro_reading, float max_gyro_magnitude);
 
-#define GRAPH_X_AXIS_LENGTH_PX 51
-#define GRAPH_y_AXIS_HEIGHT_PX 35
+#define GRAPH_X_AXIS_LENGTH_PX 51 // one pixel (the leftmost) is not usable because it forms the Y axis
+#define GRAPH_y_AXIS_HEIGHT_PX 35 // bottom pixel will be used to construct the X axis and is therefore not usable for plotting
 
 #define SD_NUMBER_OF_BLOCKS 10
 byte SD_memory_block[512 * SD_NUMBER_OF_BLOCKS] = {0};
@@ -46,7 +46,6 @@ typedef struct {
 } queue_data;
 
 QueueHandle_t OLED_queue, SD_queue;
-
 TaskHandle_t mpu_task_handle = NULL;
 
 void setup_task(void* pvParameters);
@@ -394,7 +393,7 @@ void SD_task(void* pvParameters) {
 
 void app_main(void) {
     
-    SD_queue = xQueueCreate(100, sizeof(queue_data));
+    SD_queue = xQueueCreate(50, sizeof(queue_data));
     if (SD_queue == NULL) {
         printf("Failed to create MPU queue!\n");
         return;

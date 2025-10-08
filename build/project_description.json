@@ -1,7 +1,7 @@
 {
     "version":            "1.2",
     "project_name":       "Baremetal",
-    "project_version":    "6f0408a-dirty",
+    "project_version":    "c8378a0-dirty",
     "project_path":       "C:/Users/marti/ESP_32_code/baremetal_data_logger",
     "idf_path":           "C:/Users/marti/esp/v5.5/esp-idf",
     "build_dir":          "C:/Users/marti/ESP_32_code/baremetal_data_logger/build",
@@ -1220,12 +1220,12 @@
             "dir": "C:/Users/marti/ESP_32_code/baremetal_data_logger/main",
             "type": "LIBRARY",
             "lib": "__idf_main",
-            "reqs": [ "esp_driver_spi", "driver" ],
+            "reqs": [ "driver" ],
             "priv_reqs": [],
             "managed_reqs": [],
             "managed_priv_reqs": [],
             "file": "C:/Users/marti/ESP_32_code/baremetal_data_logger/build/esp-idf/main/libmain.a",
-            "sources": [ "C:/Users/marti/ESP_32_code/baremetal_data_logger/main/SD_card_SPI.c", "C:/Users/marti/ESP_32_code/baremetal_data_logger/main/my_SPI.c", "C:/Users/marti/ESP_32_code/baremetal_data_logger/main/ssd1306_I2C.c", "C:/Users/marti/ESP_32_code/baremetal_data_logger/main/mpu6050_I2C.c", "C:/Users/marti/ESP_32_code/baremetal_data_logger/main/main.c", "C:/Users/marti/ESP_32_code/baremetal_data_logger/main/my_I2C.c", "C:/Users/marti/ESP_32_code/baremetal_data_logger/main/SD_card.c" ],
+            "sources": [ "C:/Users/marti/ESP_32_code/baremetal_data_logger/main/SD_card_SPI.c", "C:/Users/marti/ESP_32_code/baremetal_data_logger/main/my_SPI.c", "C:/Users/marti/ESP_32_code/baremetal_data_logger/main/ssd1306_I2C.c", "C:/Users/marti/ESP_32_code/baremetal_data_logger/main/mpu6050_I2C.c", "C:/Users/marti/ESP_32_code/baremetal_data_logger/main/main.c", "C:/Users/marti/ESP_32_code/baremetal_data_logger/main/my_I2C.c" ],
             "include_dirs": []
         },
         "mbedtls": {
@@ -2907,7 +2907,7 @@
             "prefix": "idf",
             "dir": "C:/Users/marti/ESP_32_code/baremetal_data_logger/main",
             "lib": "__idf_main",
-            "reqs": [ "esp_driver_spi", "driver" ],
+            "reqs": [ "driver" ],
             "priv_reqs": [],
             "managed_reqs": [],
             "managed_priv_reqs": [],

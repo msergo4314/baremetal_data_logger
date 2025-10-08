@@ -7,6 +7,12 @@ SD card protocol is used for SD cards
 Uses SPI mode 0
 */
 
+typedef enum {
+    SDSC_TYPE, // SDSC (standard capacity)
+    SDHC_SDXC_TYPE, //SDHC/ SDXC (High capacity or very high capacity)
+    UNKNOWN_TYPE = -1
+} SD_CARD_TYPE;
+
 /**
  * @brief Initialize the SD card in SPI mode.
  *
@@ -109,4 +115,12 @@ bool SD_clear_many_blocks(uint32_t starting_block_num, size_t num_blocks);
  * @return Total block count, or 0 on failure.
  */
 uint32_t SD_get_number_of_512_byte_blocks(void);
+
+
+/**
+ * @brief gets the type of SD card
+ *
+ * @return the type of SD card (high or standard capacity) as an enum
+ */
+SD_CARD_TYPE SD_get_type(void);
 #endif /* SD_CARD_SPI_H */

@@ -1,6 +1,5 @@
 #include "SD_card.h"
 #include <esp_rom_sys.h> // for timing
-#include <driver/spi_master.h>
 #include <string.h> // memset
 
 /*
@@ -30,7 +29,7 @@ additional information may be provided. Next, there are 7 bits containing a Cycl
 #define R1_RESPONSE_ADDRESS_ERROR           1U << 5
 #define R1_RESPONSE_PARAMETER_ERROR         1U << 6
 
-#define SPI_MAXIMUM_BUFFER_SIZE 512 + 2 // maximum transfer size in bytes
+#define SPI_MAXIMUM_BUFFER_SIZE 514U // maximum transfer size in bytes (includes block length and 2 CRC bytes)
 
 // Send a 6 byte command to the SD card
 static byte SD_send_command_r1(byte cmd, const byte *args, bool done);
@@ -40,16 +39,11 @@ static bool SD_send_command_r7(byte cmd, const byte *args, byte response[5], boo
 static void build_sd_command(byte cmd, const byte *args, byte *out_cmd);
 static inline void deassert_cs(void);
 
+static uint32_t SD_get_block_count(byte *csd);
 static inline byte SD_send_byte(byte data);
 static inline byte SD_send_idle_byte(void);
 static bool verify_voltage_and_version(gpio_num_t SD_card_chip_select);
 static uint32_t get_CSD_slice(const uint8_t* csd, byte upper_index, byte lower_index);
-
-typedef enum {
-    SDSC_TYPE, // SDSC (standard capacity)
-    SDHC_SDXC_TYPE, //SDHC/ SDXC (High capacity or very high capacity)
-    UNKNOWN_TYPE = -1
-} SD_CARD_TYPE;
 
 // data response tokens for write commands (CMD 24 and 25)
 typedef enum {
@@ -120,7 +114,7 @@ bool SD_card_init(gpio_num_t SD_card_chip_select) {
 
     int real_frequency;
     spi_device_get_actual_freq(SD_handle, &real_frequency);
-    printf("SPI frequency set to %d\n", real_frequency * 1000);
+    // printf("SPI frequency set to %d\n", real_frequency * 1000);
     
     // fill with 0xFF
     byte empty[10] = {SD_MOSI_IDLE_BITS};
@@ -172,14 +166,14 @@ bool SD_card_init(gpio_num_t SD_card_chip_select) {
     // increase SPI clock speed. SD cards can handle up to 50 MHz
     spi_device_release_bus(SD_handle);
     ESP_ERROR_CHECK(spi_bus_remove_device(SD_handle));
-    // 26 Mhz is max acceptable speed but causes the wrong R1 response
+    // 26.666 Mhz is max acceptable speed but causes the wrong R1 response -- use 20 MHz
     SD_device_interface_config.clock_speed_hz = 20 * 1000 * 1000;
     SD_handle = NULL;
     ESP_ERROR_CHECK(spi_bus_add_device(host_device, &SD_device_interface_config, &SD_handle));
     ESP_ERROR_CHECK(spi_device_acquire_bus(SD_handle, portMAX_DELAY));
 
-    spi_device_get_actual_freq(SD_handle, &real_frequency);
-    printf("SPI frequency set to %.2f Mhz\n", real_frequency / 1000.0f);
+    ESP_ERROR_CHECK(spi_device_get_actual_freq(SD_handle, &real_frequency));
+    // printf("SPI frequency set to %.2f Mhz\n", real_frequency / 1000.0f);
 
     deassert_cs();
 
@@ -693,7 +687,7 @@ bool SD_read_CSD(byte *csd) {
  * @param csd The 16-byte CSD register.
  * @return The total number of 512-byte blocks.
  */
-uint32_t SD_get_block_count(byte *csd) {
+static uint32_t SD_get_block_count(byte *csd) {
     if (!csd) {
         printf("passed NULL pointer to SD_get_block_count()\n");
         return 0x0;
@@ -1003,4 +997,11 @@ bool SD_deinit(void) {
     if (spi_bus_remove_device(SD_handle) != ESP_OK) return false;
     if (spi_bus_free(host_device) != ESP_OK) return false;
     return true;
+}
+
+SD_CARD_TYPE SD_get_type(void) {
+    if (SD_card_type_global == UNKNOWN_TYPE) {
+        printf("Error: card type is not known. Make sure to call SD_init() before requesting the type\n");
+    }
+    return SD_card_type_global;
 }

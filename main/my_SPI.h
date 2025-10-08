@@ -53,8 +53,9 @@ bool SPI_attach_device(gpio_num_t cs, SPI_MODE mode);
 * @brief Sends a stream of bytes of length number_of_bytes via SPI and stores the response data into rx_buffer
 *
 * Does not interact with the chip select pins at all
-* @param tx_buffer the stream of bytes to transmit
+* @param tx_buffer the stream of bytes to transmit. If NULL, a stream of 0xFF is sent instead
 * @param rx_buffer the buffer that will hold the recieved bytes from the MISO line (must have same length as tx or more)
+*                  if set to NULL, data will be sent from tx_buffer but nothing will be caught.
 * @param number_of_bytes the number of bytes to send from tx_buffer
 * @param mode SPI mode of the communication
 */

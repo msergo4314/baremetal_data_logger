@@ -91,9 +91,9 @@ bool SPI_init(void) {
     thus, f(0 NOPS) = current_Hz_global and T(0 NOPs) = 1 / fmax;
 
     However, the scaling is not fully linear since for a small # of NOPs loop functions (bit shifting, reads, writes) dominate
-    while for high numbers NOP times dominate
+    transmission times while for high numbers NOP times dominate
 
-    therefore the formula we should use for transmission clock periods is not T (n NOPS) = (NOPs * nop_time)
+    therefore, the formula we should use for transmission clock periods is not T (n NOPS) = (NOPs * nop_time)
     but instead T (n NOPS) = (NOPs * nop_time) + fixed loop time (y = mx + b)
     we just need two points to find the equation so we will do it quickly in the init using NOPs = 0 and 50
 
@@ -248,16 +248,16 @@ void SPI_set_mosi(bool mosi_logic_level) {
 }
 
 size_t SPI_get_clock_speed_Hz() {
-
     // just use mode 0 here and don't touch any CS pins to make sure we don't send anything
     clk_low();
     int num_bytes = 600;
-    uint32_t start = esp_rtc_get_time_us();
+    uint64_t start = esp_rtc_get_time_us();
     // simulate a transmission of num_bytes
     for (int i = 0; i < num_bytes; i++) {
-        send_byte_mode0(0x0);
+        // what we transmit doesn't matter
+        send_byte_mode0(0x8A);
     }
-    uint32_t elapsed = esp_rtc_get_time_us() - start;
+    uint64_t elapsed = esp_rtc_get_time_us() - start;
     // printf("Elapsed time for %d bytes sent with SPI: %lu us (%.3f sec)\n", num_bytes, elapsed, (elapsed) * 1e-6);
     size_t frequency_estimate =  (size_t)((num_bytes * 8) / (elapsed * 1e-6));
     // printf("Estimated SPI speed: %u kHz\n\n", frequency_estimate / 1000);

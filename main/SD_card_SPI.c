@@ -36,12 +36,7 @@ static void build_sd_command(byte cmd, const byte *args, byte *out_cmd);
 
 static bool verify_voltage_and_version(gpio_num_t SD_card_chip_select);
 static uint32_t get_CSD_slice(const uint8_t* csd, byte upper_index, byte lower_index);
-
-typedef enum {
-    SDSC_TYPE, // SDSC (standard capacity)
-    SDHC_SDXC_TYPE, //SDHC/ SDXC (High capacity or very high capacity)
-    UNKNOWN_TYPE = -1
-} SD_CARD_TYPE;
+static uint32_t SD_get_block_count(byte* csd);
 
 // data response tokens for write commands (CMD 24 and 25)
 typedef enum {
@@ -63,7 +58,6 @@ bool SD_card_init(gpio_num_t SD_card_chip_select) {
     esp_rom_delay_us(1000); // likely not needed but cheap to do
     SPI_attach_device(SD_card_chip_select, MODE_0);
     if (!SPI_init()) return false;    
-    // SPI_set_mosi(1); // set MOSI high when idle (0xFF)
     SD_CS_global = SD_card_chip_select;
     SPI_cs_high(SD_CS_global);
 
@@ -128,6 +122,7 @@ bool SD_card_init(gpio_num_t SD_card_chip_select) {
     }
     if (SD_card_type_global == SDSC_TYPE) {
         // make sure SET_BLOCKLEN is 512 using CMD16
+        // not applicable for this card...
         ;
     }
     // SDXC/SDHC cards always use 512 byte blocks
@@ -250,10 +245,8 @@ reads 5 bytes (40 bits) of the response (R1 + 4 bytes OCR)
 Used only for command 58
 */
 static bool SD_send_command_r3(byte cmd, const byte *args, byte response[5], bool done) {
-    SPI_set_mosi(1);
     byte tx[6 + SD_RESPONSE_TIMEOUT + 5];   // cmd + polling + payload
     byte rx[sizeof(tx)];
-
     build_sd_command(cmd, args, tx);
 
     // Fill trailing dummy bytes
@@ -317,11 +310,12 @@ bool SD_read_block(uint32_t block_num, byte* block_data) {
                     : block_num * 512;
 
     byte args[4] = {
-        (addr >> 24) & 0xFF,
-        (addr >> 16) & 0xFF,
-        (addr >> 8) & 0xFF,
-        addr & 0xFF
+    (addr >> 24) & 0xFF,
+    (addr >> 16) & 0xFF,
+    (addr >> 8) & 0xFF,
+    addr & 0xFF
     };
+
     byte temp = SD_send_command_r1(17, args, false);
     if (temp != 0x0) {
         printf("expected response 0x0, got %x\n", temp);
@@ -340,7 +334,6 @@ bool SD_read_block(uint32_t block_num, byte* block_data) {
             return false;
         }
     } while (token != 0xFE);
-    // printf("Found token response after %d attempts\n", attempts);
 
     // Read 512 bytes
     for (int i = 0; i < 512; i++) {
@@ -350,14 +343,6 @@ bool SD_read_block(uint32_t block_num, byte* block_data) {
     // Read CRC (2 bytes)
     SPI_transfer_byte(0xFF, MODE_0);
     SPI_transfer_byte(0xFF, MODE_0);
-    // printf("CRC 0: %x\n", SPI_transfer_byte(0xFF, MODE_0));
-    // printf("CRC 1: %x\n", SPI_transfer_byte(0xFF, MODE_0));
-
-    // printf("should be ff since all transmission data read: %x\n", SPI_transfer_byte(0xFF, MODE_0));
-    if (SPI_transfer_byte(0xFF, MODE_0) != 0xFF) {
-        SPI_cs_high(SD_CS_global);
-        return false;
-    }
 
     SPI_cs_high(SD_CS_global);
     return true;
@@ -479,7 +464,7 @@ bool SD_read_CSD(byte* csd) {
  * @param csd The 16-byte CSD register.
  * @return The total number of 512-byte blocks.
  */
-uint32_t SD_get_block_count(byte* csd) {
+static uint32_t SD_get_block_count(byte* csd) {
     
     byte C_SIZE_MULT, READ_BL_LEN;
     uint16_t C_SIZE;
@@ -539,7 +524,6 @@ uint32_t SD_get_number_of_512_byte_blocks(void) {
         return 0x0;
     }
     return SD_get_block_count(csd);
-    // printf("Total 512-byte blocks: %.4e\n", (double)blocks);
 }
 
 bool SD_is_block_empty(uint32_t block_num) {
@@ -740,4 +724,11 @@ bool SD_clear_many_blocks(uint32_t starting_block_num, size_t num_blocks) {
     }
     free(zeroes);
     return true;
+}
+
+SD_CARD_TYPE SD_get_type(void) {
+    if (SD_card_type_global == UNKNOWN_TYPE) {
+        printf("Error: card type is not known. Make sure to call SD_init() before requesting the type\n");
+    }
+    return SD_card_type_global;
 }
