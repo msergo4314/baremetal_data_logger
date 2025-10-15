@@ -32,6 +32,7 @@ static inline void scl_high(void);
 static inline void scl_low(void);
 static inline void I2C_delay(void);
 
+// use a mutex so the bus is held during transmissions
 static SemaphoreHandle_t I2C_bus_mutex = NULL;
 
 /**

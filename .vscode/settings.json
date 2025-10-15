@@ -6,7 +6,7 @@
     "interface/ftdi/esp32_devkitj_v1.cfg",
     "target/esp-wroom-32.cfg"
   ],
-  "idf.portWin": "COM7",
+  "idf.portWin": "COM3",
   "idf.toolsPathWin": "C:\\Espressif",
   "idf.customExtraVars": {
     "IDF_TARGET": "esp32"
@@ -47,7 +47,8 @@
     "i2c_master.h": "c",
     "sd_card.h": "c",
     "spi_master.h": "c",
-    "cstddef": "c"
+    "cstddef": "c",
+    "stdio.h": "c"
   },
   "idf.flashType": "UART"
 }

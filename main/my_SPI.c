@@ -250,7 +250,7 @@ void SPI_set_mosi(bool mosi_logic_level) {
 size_t SPI_get_clock_speed_Hz() {
     // just use mode 0 here and don't touch any CS pins to make sure we don't send anything
     clk_low();
-    int num_bytes = 600;
+    int num_bytes = 600; // we want enough bytes to have a consistent reading but still a fast transmission
     uint64_t start = esp_rtc_get_time_us();
     // simulate a transmission of num_bytes
     for (int i = 0; i < num_bytes; i++) {

@@ -30,14 +30,16 @@ byte accel_to_scaled_pixel(float accleration_reading, float max_accel_magnitude)
 byte gyro_to_scaled_pixel(float gyro_reading, float max_gyro_magnitude);
 
 #define GRAPH_X_AXIS_LENGTH_PX 51 // one pixel (the leftmost) is not usable because it forms the Y axis
-#define GRAPH_y_AXIS_HEIGHT_PX 35 // bottom pixel will be used to construct the X axis and is therefore not usable for plotting
+#define GRAPH_Y_AXIS_HEIGHT_PX 35 // bottom pixel will be used to construct the X axis and is therefore not usable for plotting
 
 #define SD_NUMBER_OF_BLOCKS 10
-byte SD_memory_block[512 * SD_NUMBER_OF_BLOCKS] = {0};
+byte SD_memory_block[512 * SD_NUMBER_OF_BLOCKS] = {0}; // used to write data to SD card (could also be used to read it)
 
+// configure the IMU sensitivity as desired 
 const MPU6050_ACCELEROMETER_RANGE accel_range = MPU6050_RANGE_2_G;
 const MPU6050_GYROSCOPE_RANGE gyro_range = MPU6050_RANGE_250_DEG;
 
+// simple struct to store IMU sensor data
 typedef struct {
     float timestamp; //timestamp since program start
     mpu6050_xyz_data accel;
@@ -45,8 +47,8 @@ typedef struct {
     float temperature; // MPU die temp
 } queue_data;
 
-QueueHandle_t OLED_queue, SD_queue;
-TaskHandle_t mpu_task_handle = NULL;
+QueueHandle_t OLED_queue, SD_queue; // handles for the two queues
+TaskHandle_t mpu_task_handle = NULL; // MPU task handle will be needed for the MPU task to be notified
 
 void setup_task(void* pvParameters);
 void MPU_task(void* pvParameters);
@@ -168,6 +170,8 @@ void setup_task(void* pvParameters) {
     // printf("Wrote 5 blocks successfully. Reading 6 blocks:\n");
     if (!SD_read_many_blocks(500000, SD_memory_block, 6)) {printf("Read failure\n"); goto exit_failure;}
 
+    // uncomment to see all the block data. Note this is pretty slow because of 512 printf() calls per block
+
     // for (int i=0; i < 6; i++) {
     //     printf("Block %d data:\n", block_to_read + i);
     //     for(int j = 0; j < 512; j++) {
@@ -186,7 +190,7 @@ void setup_task(void* pvParameters) {
     printf("Cleared all used blocks. Giving notification...\n");
     // notify app_main that we are done with setup testing
     xTaskNotify(main_handle, 1, eSetValueWithOverwrite);
-    vTaskDelete(NULL);
+    vTaskDelete(NULL); // tasks are generally supposed to run forever but this one is just for setup (could just move to main)
 
     exit_failure:
     xTaskNotify(main_handle, 0, eSetValueWithOverwrite);
@@ -273,8 +277,8 @@ void OLED_task(void* pvParameters) {
     ssd1306_draw_hline(63, 0, GRAPH_X_AXIS_LENGTH_PX, false);
     ssd1306_draw_hline(63, GRAPH_X_AXIS_LENGTH_PX + 20, 2 * GRAPH_X_AXIS_LENGTH_PX + 20, false);
 
-    ssd1306_draw_vline(0, 63, 63 - GRAPH_y_AXIS_HEIGHT_PX, false);
-    ssd1306_draw_vline(GRAPH_X_AXIS_LENGTH_PX + 20, 63, 63 - GRAPH_y_AXIS_HEIGHT_PX, false);
+    ssd1306_draw_vline(0, 63, 63 - GRAPH_Y_AXIS_HEIGHT_PX, false);
+    ssd1306_draw_vline(GRAPH_X_AXIS_LENGTH_PX + 20, 63, 63 - GRAPH_Y_AXIS_HEIGHT_PX, false);
     if (!ssd1306_refresh_display()) {
         printf("failed to draw graph axes\n");
         vTaskDelete(NULL);
@@ -343,11 +347,11 @@ void OLED_task(void* pvParameters) {
         }
         // clear the internal GDDRAM but don't update the display yet to get ready for the next iteration
         coord_1.x = 1;
-        coord_1.y = 63 - GRAPH_y_AXIS_HEIGHT_PX;
-        ssd1306_clear_rectangle(coord_1, GRAPH_X_AXIS_LENGTH_PX, GRAPH_y_AXIS_HEIGHT_PX, false);
+        coord_1.y = 63 - GRAPH_Y_AXIS_HEIGHT_PX;
+        ssd1306_clear_rectangle(coord_1, GRAPH_X_AXIS_LENGTH_PX, GRAPH_Y_AXIS_HEIGHT_PX, false);
         coord_2.x = GRAPH_X_AXIS_LENGTH_PX + 21;
-        coord_2.y = 63 - GRAPH_y_AXIS_HEIGHT_PX;
-        ssd1306_clear_rectangle(coord_2, GRAPH_X_AXIS_LENGTH_PX, GRAPH_y_AXIS_HEIGHT_PX, false);
+        coord_2.y = 63 - GRAPH_Y_AXIS_HEIGHT_PX;
+        ssd1306_clear_rectangle(coord_2, GRAPH_X_AXIS_LENGTH_PX, GRAPH_Y_AXIS_HEIGHT_PX, false);
         xTaskDelayUntil(&last_wake_time, period);
     }
 }
@@ -502,10 +506,11 @@ void insert_into_window(float value, float* graph_window, size_t number_of_windo
 byte accel_to_scaled_pixel(float accleration_reading, float max_accel_magnitude) {
     float ratio = (accleration_reading / max_accel_magnitude);
     ratio = (ratio > 1.0) ? 1.0 : ratio; // should never be > 1.0 but just in case
-    // minimum value will be pixel 62 (just above the x axis)
+    // minimum value will be pixel 62 (just above the x axis which is pixel 63)
     byte scaled_accel = 62;
 
-    scaled_accel -= (byte)((ratio) * (GRAPH_y_AXIS_HEIGHT_PX - 1));
+    // subtracting moves the pixel value up vertically towards the top of the screen
+    scaled_accel -= (byte)(ratio * (GRAPH_Y_AXIS_HEIGHT_PX - 1));
     return scaled_accel;
 }
 
@@ -516,10 +521,10 @@ byte gyro_to_scaled_pixel(float gyro_reading, float max_gyro_magnitude) {
     // minimum value will be pixel 62 (just above the x axis)
     byte scaled_gyro = 62;
 
-    scaled_gyro -= (byte)((ratio) * (GRAPH_y_AXIS_HEIGHT_PX - 1));
+    scaled_gyro -= (byte)((ratio) * (GRAPH_Y_AXIS_HEIGHT_PX - 1));
     return scaled_gyro;
 }
 
 void reset_512_byte_block_buffer(byte* buffer, size_t number_of_blocks) {
-    memset(buffer, 0x0, 512 * number_of_blocks);
+    memset(buffer, 0x00, 512 * number_of_blocks);
 }

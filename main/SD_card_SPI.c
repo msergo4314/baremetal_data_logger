@@ -172,7 +172,7 @@ static byte SD_send_command_r1(byte cmd, const byte *args, bool done) {
     do {
         r1 = SPI_transfer_byte(SD_MOSI_IDLE_BITS, MODE_0);
         if (++attempts > SD_RESPONSE_TIMEOUT) {
-            printf("Timeout waiting for R1b response\n");
+            printf("Timeout waiting for R1 response\n");
             SPI_cs_high(SD_CS_global);
             return 0xFF;
         }
@@ -195,7 +195,7 @@ static uint16_t SD_send_command_r2(byte cmd, const byte *args, bool done) {
     do {
         r1 = SPI_transfer_byte(SD_MOSI_IDLE_BITS, MODE_0);
         if (++attempts > SD_RESPONSE_TIMEOUT) {
-            printf("Timeout waiting for R1b response\n");
+            printf("Timeout waiting for R2 response\n");
             SPI_cs_high(SD_CS_global);
             return 0xFF;
         }
